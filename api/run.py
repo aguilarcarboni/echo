@@ -6,7 +6,6 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from src.utils.logger import logger
 from datetime import timedelta
-from src.utils.managers.secret_manager import get_secret
 from src.utils.response import format_response
 from src.utils.exception import ServiceError
 
@@ -25,7 +24,7 @@ def jwt_required_except_login():
 def start_api():
 
     try:
-        jwt_secret_key = get_secret('JWT_SECRET_KEY')
+        jwt_secret_key = '11123123123'
     except Exception as e:
         logger.error(f"Failed to fetch JWT secret key: {str(e)}")
         raise Exception("Failed to initialize API - could not fetch JWT secret key")
@@ -57,9 +56,7 @@ def start_api():
     # Index page
     @app.route('/')
     def index():
-        a = 5
-        b = 6
-        return {'title': a + b}
+        {'title': 'api'}
     
     # Error handlers
     @app.errorhandler(404)
@@ -114,6 +111,9 @@ def start_api():
 
         logger.error(f'Failed to authenticate user.')
         raise ServiceError("Unauthorized", status_code=401)
+    
+    from src.app import users
+    app.register_blueprint(users.bp, url_prefix='/users')
     
     return app
 
