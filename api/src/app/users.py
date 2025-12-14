@@ -8,18 +8,37 @@ bp = Blueprint('users', __name__)
 @bp.route('/create', methods=['POST'])
 @format_response
 def create():
+    """
+    Create a new user.
+    
+    Request body:
+    {
+        "user": {
+            "email": "user@example.com",
+            "organization_id": "uuid",
+            "role": "admin"
+        }
+    }
+    
+    Returns:
+    {
+        "id": "user-uuid",
+        "message": "User created successfully"
+    }
+    """
+    logger.info('Received request to create user')
     payload = request.get_json(force=True)
-    user = payload['user']
+    user = payload.get('user', {})
     
     # Check if user email already exists
-    existing_user = read_users(query={'email': user['email']})
+    existing_user = read_users(query={'email': user.get('email')})
 
-    if existing_user and len(existing_user) > 1:
+    if existing_user and len(existing_user) > 0:
         logger.error(f'User email already exists')
         raise Exception('User email already exists')
     
-    user = create_user(user=user)
-    return user
+    user_id = create_user(user=user)
+    return {'id': user_id, 'message': 'User created successfully'}
 
 @bp.route('/read', methods=['GET'])
 @format_response

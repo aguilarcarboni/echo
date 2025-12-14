@@ -188,13 +188,28 @@ class DatabaseManager:
         return data
 
     def _dates_to_timestamp(self, data: dict):
+        """
+        Convert datetime objects and timestamp strings to ISO 8601 format for PostgreSQL.
+        PostgreSQL TIMESTAMP columns expect formats like '2025-01-13 23:29:56' or '2025-01-13T23:29:56'
+        """
         for key, value in data.items():
             if isinstance(value, datetime):
-                data[key] = value.strftime('%Y%m%d%H%M%S')
+                # Format as ISO 8601: '2025-01-13 23:29:56'
+                data[key] = value.strftime('%Y-%m-%d %H:%M:%S')
             elif isinstance(value, str):
+                # Try to parse various timestamp formats and convert to ISO 8601
                 try:
-                    data[key] = datetime.strptime(value, '%Y-%m-%dT%H:%M:%S.%fZ').strftime('%Y%m%d%H%M%S')
+                    # Try parsing the custom format first
+                    if len(value) == 14 and value.isdigit():  # Format: 20251213232956
+                        dt = datetime.strptime(value, '%Y%m%d%H%M%S')
+                        data[key] = dt.strftime('%Y-%m-%d %H:%M:%S')
+                    # Try ISO format with timezone
+                    elif 'T' in value or 'Z' in value:
+                        # Parse ISO format and convert to PostgreSQL format
+                        dt = datetime.strptime(value.replace('Z', ''), '%Y-%m-%dT%H:%M:%S.%f' if '.' in value else '%Y-%m-%dT%H:%M:%S')
+                        data[key] = dt.strftime('%Y-%m-%d %H:%M:%S')
                 except:
+                    # If parsing fails, leave as is (might already be in correct format)
                     pass
         return data
 
@@ -208,30 +223,72 @@ class DatabaseManager:
             
             # Get the model class for the table
             model = None
-            for class_ in self.base.__subclasses__():
-                if hasattr(class_, '__tablename__') and class_.__tablename__ == table:
-                    model = class_
-                    break
+            # Try to find model in registry using multiple methods
+            try:
+                # Method 1: Try __subclasses__ (works for direct subclasses)
+                for class_ in self.base.__subclasses__():
+                    if hasattr(class_, '__tablename__') and class_.__tablename__ == table:
+                        model = class_
+                        break
+                
+                # Method 2: Try registry if method 1 didn't work
+                if not model:
+                    for class_name, class_obj in self.base.registry._class_registry.items():
+                        if (hasattr(class_obj, '__tablename__') and 
+                            class_obj.__tablename__ == table):
+                            model = class_obj
+                            break
+            except Exception as e:
+                logger.warning(f'Could not find model using registry: {e}')
             
-            if not model:
-                raise Exception(f"Model not found for table: {table}")
-            
-            current_time = datetime.now().strftime('%Y%m%d%H%M%S')
-            data = self._dates_to_timestamp(data)
+            # If model found, use ORM approach
+            if model:
+                # Format timestamp as ISO 8601 for PostgreSQL
+                current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                data = self._dates_to_timestamp(data)
 
-            data = {
-                'created': current_time,
-                'updated': current_time,
-                **data
-            }
-            
-            # Create a new instance of the model
-            new_record = model(**data)
-            session.add(new_record)
-            session.flush()
-            
-            logger.success(f'Successfully created entry with id: {new_record.id}')
-            return str(new_record.id)
+                # Check what timestamp fields the model has and set defaults if not provided
+                # Models use created_at/updated_at, not created/updated
+                if 'created_at' not in data and hasattr(model, 'created_at'):
+                    data['created_at'] = current_time
+                if 'updated_at' not in data and hasattr(model, 'updated_at'):
+                    data['updated_at'] = current_time
+                
+                # Create a new instance of the model
+                new_record = model(**data)
+                session.add(new_record)
+                session.flush()
+                
+                logger.success(f'Successfully created entry with id: {new_record.id}')
+                return str(new_record.id)
+            else:
+                # Fallback to Table-based insert (like read method)
+                logger.warning(f'Model not found for table: {table}, using Table-based insert')
+                tbl = Table(table, self.metadata, autoload_with=self.engine)
+                
+                # Format timestamp as ISO 8601 for PostgreSQL
+                current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                data = self._dates_to_timestamp(data)
+                
+                # Add timestamps if columns exist
+                if 'created_at' not in data and 'created_at' in tbl.c:
+                    data['created_at'] = current_time
+                if 'updated_at' not in data and 'updated_at' in tbl.c:
+                    data['updated_at'] = current_time
+                
+                # Ensure ID is present (should be set by caller, but generate if missing)
+                if 'id' not in data and 'id' in tbl.c:
+                    import uuid
+                    data['id'] = str(uuid.uuid4())
+                
+                # Insert using Table with returning clause to get the ID back
+                insert_stmt = tbl.insert().values(**data).returning(tbl.c.id)
+                result = session.execute(insert_stmt)
+                inserted_id = result.scalar()
+                session.flush()
+                
+                logger.success(f'Successfully created entry with id: {inserted_id}')
+                return str(inserted_id)
 
         return _create(table, data)
 
@@ -302,7 +359,8 @@ class DatabaseManager:
                 raise Exception(f"{table.capitalize()} with given parameters not found")
             
             logger.info(f'Updating entry timestamp.')
-            data['updated'] = datetime.now().strftime('%Y%m%d%H%M%S')
+            # Format timestamp as ISO 8601 for PostgreSQL
+            data['updated_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             data = self._dates_to_timestamp(data)
 
             sql_query.update(data)
@@ -403,10 +461,19 @@ class DatabaseManager:
                     logger.error(f'No data to import to table: {table}')
                     raise Exception(f'No data to import to table: {table}')
 
-                current_time = datetime.now().strftime('%Y%m%d%H%M%S')
+                # Format timestamp as ISO 8601 for PostgreSQL
+                current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 for item in data:
-                    item['created'] = current_time
-                    item['updated'] = current_time
+                    # Use created_at/updated_at to match database schema
+                    if 'created_at' in tbl.c:
+                        item['created_at'] = current_time
+                    if 'updated_at' in tbl.c:
+                        item['updated_at'] = current_time
+                    # Fallback to created/updated if those columns exist
+                    if 'created' in tbl.c and 'created_at' not in tbl.c:
+                        item['created'] = current_time
+                    if 'updated' in tbl.c and 'updated_at' not in tbl.c:
+                        item['updated'] = current_time
 
                 session.execute(tbl.insert(), data)
                 session.flush()

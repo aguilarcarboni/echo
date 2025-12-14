@@ -1,13 +1,56 @@
+'use client'
+
+import { useState, useEffect } from "react"
 import { Navbar } from "@/components/navbar"
 import { Sidebar } from "@/components/sidebar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { studies, participants } from "@/lib/data"
+import { participants } from "@/lib/data"
 import Link from "next/link"
 import { ArrowRight, Users, FileText, Activity } from "lucide-react"
+import { getStudies } from "@/utils/api"
+
+interface Study {
+  id: string
+  name: string
+  status: string
+  numParticipants?: number
+  target_participants?: number
+  durationDays?: number
+  duration_days?: number
+}
 
 export default function DashboardPage() {
+  const [studies, setStudies] = useState<Study[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function fetchStudies() {
+      try {
+        const data = await getStudies()
+        // Normalize API response to match UI expectations
+        const normalizedStudies = data.map((study: any) => ({
+          ...study,
+          numParticipants: study.numParticipants ?? study.target_participants ?? 0,
+          durationDays: study.durationDays ?? study.duration_days ?? 0,
+        }))
+        setStudies(normalizedStudies)
+      } catch (error) {
+        console.error('Failed to fetch studies:', error)
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    fetchStudies()
+  }, [])
+
+  if (loading) {
+    return <div>Loading...</div>
+  }
+
   const activeStudies = studies.filter((s) => s.status === "active")
+
   const recentParticipants = participants.slice(-3).reverse()
   const totalParticipants = participants.length
 

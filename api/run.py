@@ -11,7 +11,7 @@ from src.utils.exception import ServiceError
 
 load_dotenv()
 
-public_routes = ['token']
+public_routes = ['token', 'index']
 
 def jwt_required_except_login():
     logger.info(f'\nRequest endpoint: {request.endpoint} from {request.remote_addr}')
@@ -19,7 +19,12 @@ def jwt_required_except_login():
         try:
             verify_jwt_in_request()
         except exceptions.JWTExtendedException as e:
-            return jsonify({"msg": "Unauthorized"}), 401
+            error_msg = str(e)
+            logger.error(f'JWT authentication failed: {error_msg}')
+            # Provide more helpful error messages
+            if "Not enough segments" in error_msg or "Invalid token" in error_msg:
+                return jsonify({"msg": "Invalid or missing token. Please get a token from /token endpoint first."}), 401
+            return jsonify({"msg": "Unauthorized", "error": error_msg}), 401
  
 def start_api():
 
@@ -56,7 +61,7 @@ def start_api():
     # Index page
     @app.route('/')
     def index():
-        {'title': 'api'}
+        return jsonify({'title': 'api'})
     
     # Error handlers
     @app.errorhandler(404)
@@ -112,11 +117,19 @@ def start_api():
         logger.error(f'Failed to authenticate user.')
         raise ServiceError("Unauthorized", status_code=401)
     
-    from src.app import users
+    from src.app import users, studies, organizations
     app.register_blueprint(users.bp, url_prefix='/users')
+    app.register_blueprint(studies.bp, url_prefix='/studies')
+    app.register_blueprint(organizations.bp, url_prefix='/organizations')
     
     return app
 
 app = start_api()
 logger.announcement('Running safety checks...', type='info')
 logger.announcement('Successfully started Echo API', type='success')
+
+if __name__ == '__main__':
+    import os
+    # Use port 5001 by default to avoid conflict with macOS AirPlay on port 5000
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=True)
