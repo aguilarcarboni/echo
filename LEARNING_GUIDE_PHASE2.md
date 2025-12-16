@@ -90,7 +90,7 @@ def _setup_models(self):
 
 **What to do:**
 
-1. Create `api/src/components/tasks.py`:
+1. Create `api/src/components/tasks.py`: 
 
 ```python
 """
@@ -448,30 +448,61 @@ curl -X POST http://localhost:5000/token \
   -d '{"token": "all"}'
 ```
 
-3. Create a task (replace `YOUR_STUDY_ID` and `YOUR_TOKEN`):
-```bash
-curl -X POST http://localhost:5000/tasks/create \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -d '{
-    "task": {
-      "study_id": "YOUR_STUDY_ID",
-      "type": "discussion",
-      "title": "What are your thoughts on our product?",
-      "instructions": "Please share your honest feedback"
-    }
-  }'
-```
+3. **Get a valid study_id first** (you need a valid UUID format):
+   
+   Option A: Create a study first to get a valid UUID:
+   ```bash
+   curl -X POST http://localhost:5000/studies/create \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer YOUR_TOKEN" \
+     -d '{
+       "study": {
+         "name": "Test Study",
+         "objective": "Testing tasks API",
+         "organization_id": "YOUR_ORG_ID",
+         "created_by": "YOUR_USER_ID"
+       }
+     }'
+   ```
+   This will return a study with an `id` field - use that UUID as your `study_id`.
+   
+   Option B: List existing studies to get a study_id:
+   ```bash
+   curl -X GET "http://localhost:5000/studies/read" \
+     -H "Authorization: Bearer YOUR_TOKEN"
+   ```
 
-4. Read tasks for a study:
-```bash
-curl -X GET "http://localhost:5000/tasks/read?study_id=YOUR_STUDY_ID" \
-  -H "Authorization: Bearer YOUR_TOKEN"
-```
+4. Create a task (replace `YOUR_STUDY_ID` with a valid UUID and `YOUR_TOKEN`):
+   ```bash
+   curl -X POST http://localhost:5000/tasks/create \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer YOUR_TOKEN" \
+     -d '{
+       "task": {
+         "study_id": "451ac7d9-ac27-4229-9537-22214779443a",
+         "type": "discussion",
+         "title": "What are your thoughts on our product?",
+         "instructions": "Please share your honest feedback"
+       }
+     }'
+   ```
+   
+   **Important:** `study_id` must be a valid UUID format (e.g., `550e8400-e29b-41d4-a716-446655440000`). 
+   Using invalid formats like `"12345643"` will result in an error.
 
-**Learning Point:** Test each endpoint before building frontend to catch errors early.
+5. Read tasks for a study:
+   ```bash
+   curl -X GET "http://localhost:5000/tasks/read?study_id=451ac7d9-ac27-4229-9537-22214779443a" \
+     -H "Authorization: Bearer YOUR_TOKEN"
+   ```
+
+**Learning Point:** 
+- UUIDs must be in the format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`
+- Always use valid UUIDs from your database (create a study first, or use an existing one)
+- Test each endpoint before building frontend to catch errors early
 
 ---
+
 
 ### Step 2.1.6: Add Tasks to Frontend API Utility
 

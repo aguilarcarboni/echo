@@ -1,8 +1,9 @@
 "use client"
 
 import type React from "react"
+import { createStudy, createTask, getOrganizations, createOrganization, getUsers, createUser } from "@/utils/api"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Navbar } from "@/components/navbar"
 import { Sidebar } from "@/components/sidebar"
@@ -33,6 +34,52 @@ export default function CreateStudyPage() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [currentTaskType, setCurrentTaskType] = useState("")
   const [currentPrompt, setCurrentPrompt] = useState("")
+  const [organizationId, setOrganizationId] = useState<string | null>(null)
+  const [userId, setUserId] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+
+  // Fetch or create default organization and user on mount
+  useEffect(() => {
+    const initializeUserAndOrg = async () => {
+      try {
+        // Try to get the first organization
+        const orgs = await getOrganizations()
+        let orgId: string
+
+        if (orgs && orgs.length > 0) {
+          orgId = orgs[0].id
+        } else {
+          // Create a default organization if none exists
+          const newOrg = await createOrganization({ name: 'Default Organization' })
+          orgId = newOrg.id
+        }
+        setOrganizationId(orgId)
+
+        // Try to get the first user
+        const users = await getUsers()
+        let user: string
+
+        if (users && users.length > 0) {
+          user = users[0].id
+        } else {
+          // Create a default user if none exists
+          const newUser = await createUser({
+            email: 'default@example.com',
+            organization_id: orgId,
+            role: 'admin'
+          })
+          user = newUser.id
+        }
+        setUserId(user)
+      } catch (error) {
+        console.error('Failed to initialize user and organization:', error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    initializeUserAndOrg()
+  }, [])
 
   const handleAddTask = () => {
     if (currentTaskType && currentPrompt) {
@@ -54,14 +101,84 @@ export default function CreateStudyPage() {
     })
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    console.log("Creating study:", { name, objective, researchType, segment, numParticipants, duration, tasks })
-    toast({
-      title: "Study Created!",
-      description: "Your study has been created successfully.",
-    })
-    router.push("/dashboard")
+    
+    if (!organizationId || !userId) {
+      toast({
+        title: "Error",
+        description: "User or organization not initialized. Please refresh the page.",
+        variant: "destructive",
+      })
+      return
+    }
+    
+    try {
+        // First, create the study
+        const studyResult = await createStudy({
+            name,
+            objective,
+            study_type: researchType,
+            target_participants: parseInt(numParticipants) || 50,
+            duration_days: parseInt(duration) || 7,
+            segment_criteria: segment ? { description: segment } : {},
+            status: 'draft',
+            organization_id: organizationId,
+            created_by: userId,
+        })
+        
+        const studyId = studyResult.id
+        
+        // Then, create all tasks
+        for (const task of tasks) {
+            await createTask({
+                study_id: studyId,
+                type: getTaskTypeFromId(task.taskTypeId), // Map your task type IDs
+                title: task.prompt,
+                instructions: task.prompt,
+            })
+        }
+        
+        toast({
+            title: "Study Created!",
+            description: "Your study has been created successfully.",
+        })
+        
+        router.push(`/studies/${studyId}`)
+    } catch (error) {
+        console.error('Failed to create study:', error)
+        toast({
+            title: "Error",
+            description: "Failed to create study. Please try again.",
+            variant: "destructive",
+          })
+      }
+    }
+
+    // Helper function to map task type IDs to strings
+    function getTaskTypeFromId(id: number): string {
+      const typeMap: { [key: number]: string } = {
+          1: 'camera',
+          2: 'discussion',
+          3: 'gallery',
+          4: 'collage',
+          5: 'classification',
+          6: 'fill_blanks',
+      }
+      return typeMap[id] || 'discussion'
+    }
+
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-black">
+        <Navbar />
+        <Sidebar />
+        <main className="ml-64 mt-16 p-8">
+          <div className="text-white">Loading...</div>
+        </main>
+      </div>
+    )
   }
 
   return (

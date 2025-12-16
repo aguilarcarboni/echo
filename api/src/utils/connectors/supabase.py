@@ -6,7 +6,7 @@ from datetime import datetime
 from src.utils.managers.database_manager import DatabaseManager
 from src.utils.logger import logger
 import os
-from dotenv import load_dotenv
+from dotenv import load_dotenv 
 
 load_dotenv()  # Load environment variables from .env file
 

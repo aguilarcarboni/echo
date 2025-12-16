@@ -47,10 +47,16 @@ def read_users_route():
     id = request.args.get('id', None)
     user_id = request.args.get('user_id', None)
     lead_id = request.args.get('lead_id', None)
+    email = request.args.get('email', None)
+    organization_id = request.args.get('organization_id', None)
     if id:
         query['id'] = id
     if user_id:
         query['user_id'] = user_id
     if lead_id:
         query['lead_id'] = lead_id
+    if email:
+        query['email'] = email
+    if organization_id:
+        query['organization_id'] = organization_id
     return read_users(query=query)

@@ -8,6 +8,7 @@ from src.utils.logger import logger
 from datetime import timedelta
 from src.utils.response import format_response
 from src.utils.exception import ServiceError
+from src.app import users, studies, organizations, tasks, participants
 
 load_dotenv()
 
@@ -117,10 +118,11 @@ def start_api():
         logger.error(f'Failed to authenticate user.')
         raise ServiceError("Unauthorized", status_code=401)
     
-    from src.app import users, studies, organizations
     app.register_blueprint(users.bp, url_prefix='/users')
     app.register_blueprint(studies.bp, url_prefix='/studies')
     app.register_blueprint(organizations.bp, url_prefix='/organizations')
+    app.register_blueprint(tasks.bp, url_prefix='/tasks')
+    app.register_blueprint(participants.bp, url_prefix='/participants')
     
     return app
 
