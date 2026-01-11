@@ -10,25 +10,42 @@ Congratulations on completing Phase 1! You now have:
 - ✅ Basic frontend dashboard
 - ✅ Frontend-backend connection
 
-**Phase 2 Goal:** Complete the remaining MVP features to make Echo a fully functional research platform.
+**Phase 2 Goal:** Complete all non-AI MVP features first. We'll skip AI implementation for now and add it at the very end once all core functionalities are working.
+
+**Important:** According to the project analysis, backend APIs for Tasks, Participants, and Responses may already exist. We'll verify and complete the frontend integration first, then add AI capabilities at the end.
 
 ---
 
 ## 📋 Phase 2 Checklist
 
-### What We'll Build:
-1. **Tasks Management** - Create, read, update, delete tasks for studies
-2. **Participants Management** - Add, invite, and track participants
-3. **Response Collection** - Handle participant responses to tasks
-4. **AI Service** - Integrate OpenAI/Anthropic for study suggestions and analysis
-5. **Storage Setup** - Configure Supabase Storage for media files
-6. **Complete Frontend Integration** - Connect all UI components to APIs
+### What We'll Build (In Order):
+1. **Tasks Management** - Verify backend, complete frontend integration for task management
+2. **Participants Management** - Verify backend, complete frontend integration for participant management
+3. **Response Collection** - Verify backend, complete frontend integration for response handling
+4. **Storage Setup** - Configure Supabase Storage for media files (videos, images)
+5. **Complete Frontend Integration** - Connect all UI components to APIs, create participant interface
+6. **AI Service** ⏸️ - **SKIPPED FOR NOW** - Will be implemented at the end (Phase 2.6)
 
 ---
 
-## 🗄️ Phase 2.1: Tasks Management (Days 1-2)
+## 🗄️ Phase 2.1: Tasks Management - Verify & Complete Frontend Integration (Days 1-2)
 
-### Step 2.1.1: Understand Tasks
+### Step 2.1.1: Verify Backend API Exists
+
+**Why?** Before building frontend, we need to ensure the backend is ready.
+
+**What to do:**
+
+1. Check if `api/src/components/tasks.py` exists and has all CRUD functions
+2. Check if `api/src/app/tasks.py` exists and has all API routes
+3. Verify the tasks blueprint is registered in `api/run.py`
+
+**If backend already exists:** Great! Skip to Step 2.1.6 (Frontend Integration)
+**If backend doesn't exist:** Follow Steps 2.1.2-2.1.5 below to create it
+
+---
+
+### Step 2.1.2: Understand Tasks
 
 **Why?** Tasks are the individual activities participants complete in a study. Each study can have multiple tasks of different types.
 
@@ -58,7 +75,7 @@ CREATE TABLE tasks (
 
 ---
 
-### Step 2.1.2: Create Task Model
+### Step 2.1.3: Create Task Model (Skip if already exists)
 
 **What to do:**
 
@@ -86,7 +103,7 @@ def _setup_models(self):
 
 ---
 
-### Step 2.1.3: Create Task Component (Business Logic)
+### Step 2.1.4: Create Task Component (Business Logic) - Skip if already exists
 
 **What to do:**
 
@@ -263,7 +280,7 @@ logger.announcement('Initialized Tasks Service', type='success')
 
 ---
 
-### Step 2.1.4: Create Task API Routes
+### Step 2.1.5: Create Task API Routes (Skip if already exists)
 
 **What to do:**
 
@@ -431,7 +448,7 @@ app.register_blueprint(tasks.bp, url_prefix='/tasks')
 
 ---
 
-### Step 2.1.5: Test Tasks API
+### Step 2.1.5b: Test Tasks API (Verify Backend Works)
 
 **What to do:**
 
@@ -508,7 +525,7 @@ curl -X POST http://localhost:5000/token \
 
 **What to do:**
 
-1. Update `frontend/src/utils/api.ts`:
+1. Update `frontend/src/utils/api.ts`: 
 
 ```typescript
 // Add these functions after the study functions
@@ -545,7 +562,7 @@ export async function reorderTasks(studyId: string, taskIds: string[]) {
 
 ---
 
-### Step 2.1.7: Update Create Study Page to Save Tasks
+### Step 2.1.7: Update Create Study Page to Save Tasks (CRITICAL)
 
 **What to do:**
 
@@ -620,9 +637,22 @@ function getTaskTypeFromId(id: number): string {
 
 ---
 
-## 👥 Phase 2.2: Participants Management (Days 3-4)
+## 👥 Phase 2.2: Participants Management - Verify & Complete Frontend Integration (Days 3-4)
 
-### Step 2.2.1: Understand Participants
+### Step 2.2.1: Verify Backend API Exists
+
+**What to do:**
+
+1. Check if `api/src/components/participants.py` exists
+2. Check if `api/src/app/participants.py` exists  
+3. Verify participants blueprint is registered in `api/run.py`
+
+**If backend exists:** Skip to Step 2.2.4 (Frontend Integration)
+**If backend doesn't exist:** Follow the steps below
+
+---
+
+### Step 2.2.2: Understand Participants
 
 **Why?** Participants are the people who complete studies. They need to be invited, tracked, and their responses collected.
 
@@ -646,7 +676,7 @@ CREATE TABLE participants (
 
 ---
 
-### Step 2.2.2: Create Participant Component
+### Step 2.2.3: Create Participant Component (Skip if already exists)
 
 **What to do:**
 
@@ -822,7 +852,7 @@ logger.announcement('Initialized Participants Service', type='success')
 
 ---
 
-### Step 2.2.3: Create Participant API Routes
+### Step 2.2.4: Create Participant API Routes (Skip if already exists)
 
 **What to do:**
 
@@ -836,9 +866,57 @@ logger.announcement('Initialized Participants Service', type='success')
 
 ---
 
-## 📝 Phase 2.3: Response Collection (Days 5-6)
+### Step 2.2.5: Frontend Integration for Participants
 
-### Step 2.3.1: Understand Responses
+**What to do:**
+
+1. Add participant API functions to `frontend/src/utils/api.ts`:
+```typescript
+export async function createParticipant(participantData: any) {
+    return await accessAPI('/participants/create', 'POST', { participant: participantData });
+}
+
+export async function getParticipants(filters?: { id?: string; study_id?: string; status?: string }) {
+    const queryParams = new URLSearchParams();
+    if (filters?.id) queryParams.append('id', filters.id);
+    if (filters?.study_id) queryParams.append('study_id', filters.study_id);
+    if (filters?.status) queryParams.append('status', filters.status);
+    
+    const queryString = queryParams.toString();
+    const url = `/participants/read${queryString ? '?' + queryString : ''}`;
+    return await accessAPI(url, 'GET');
+}
+
+export async function bulkCreateParticipants(studyId: string, contacts: string[], demographics?: any) {
+    return await accessAPI('/participants/bulk-create', 'POST', { 
+        study_id: studyId, 
+        contacts, 
+        demographics 
+    });
+}
+```
+
+2. Update Study Detail page to show and manage participants
+3. Add participant invitation UI to study detail page
+
+---
+
+## 📝 Phase 2.3: Response Collection - Verify & Complete Frontend Integration (Days 5-6)
+
+### Step 2.3.1: Verify Backend API Exists
+
+**What to do:**
+
+1. Check if `api/src/components/responses.py` exists
+2. Check if `api/src/app/responses.py` exists
+3. Verify responses blueprint is registered in `api/run.py`
+
+**If backend exists:** Skip to Step 2.3.3 (Frontend Integration)
+**If backend doesn't exist:** Follow Step 2.3.2 below
+
+---
+
+### Step 2.3.2: Understand Responses
 
 **Why?** Responses store what participants submit for each task. They can be text, video URLs, images, or structured data.
 
@@ -858,7 +936,7 @@ CREATE TABLE responses (
 
 ---
 
-### Step 2.3.2: Create Response Component & API
+### Step 2.3.3: Create Response Component & API (Skip if already exists)
 
 **Exercise:** Create `api/src/components/responses.py` and `api/src/app/responses.py` following the same pattern.
 
@@ -885,234 +963,134 @@ CREATE TABLE responses (
 
 ---
 
-## 🤖 Phase 2.4: AI Service Integration (Days 7-8)
-
-### Step 2.4.1: Set Up AI API Keys
+### Step 2.3.4: Frontend Integration for Responses
 
 **What to do:**
 
-1. Get OpenAI API key from [platform.openai.com](https://platform.openai.com)
-2. Get Anthropic API key from [console.anthropic.com](https://console.anthropic.com) (optional)
-3. Add to `api/.env`:
-```env
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
+1. Add response API functions to `frontend/src/utils/api.ts`:
+```typescript
+export async function createResponse(responseData: any) {
+    return await accessAPI('/responses/create', 'POST', { response: responseData });
+}
+
+export async function getResponses(filters?: { 
+    id?: string; 
+    participant_id?: string; 
+    task_id?: string;
+    study_id?: string;
+}) {
+    const queryParams = new URLSearchParams();
+    if (filters?.id) queryParams.append('id', filters.id);
+    if (filters?.participant_id) queryParams.append('participant_id', filters.participant_id);
+    if (filters?.task_id) queryParams.append('task_id', filters.task_id);
+    if (filters?.study_id) queryParams.append('study_id', filters.study_id);
+    
+    const queryString = queryParams.toString();
+    const url = `/responses/read${queryString ? '?' + queryString : ''}`;
+    return await accessAPI(url, 'GET');
+}
+```
+
+2. Create participant response interface (see Phase 2.5.2)
+3. Add response viewing to study detail page
+
+---
+
+## 📦 Phase 2.4: Storage Setup (Day 7)
+
+**Why Now?** We need storage configured before building the participant response interface that handles file uploads.
+
+### Step 2.4.1: Configure Supabase Storage Buckets
+
+**What to do:**
+
+1. Go to Supabase Dashboard → Storage
+2. Create these buckets:
+   - `study-assets` (Public) - For study images, videos
+   - `participant-uploads` (Private) - For participant responses
+   - `company-data` (Private) - For company-specific files
+
+3. Set up storage policies in SQL Editor:
+
+```sql
+-- Allow authenticated users to upload study assets
+CREATE POLICY "Authenticated users can upload study assets"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK (bucket_id = 'study-assets');
+
+-- Allow public read for study assets
+CREATE POLICY "Public can view study assets"
+ON storage.objects FOR SELECT
+TO public
+USING (bucket_id = 'study-assets');
+
+-- Allow participants to upload responses
+CREATE POLICY "Participants can upload responses"
+ON storage.objects FOR INSERT
+TO anon
+WITH CHECK (bucket_id = 'participant-uploads');
+
+-- Allow org members to read participant uploads
+CREATE POLICY "Org members can view participant uploads"
+ON storage.objects FOR SELECT
+TO authenticated
+USING (bucket_id = 'participant-uploads');
+```
+
+**Learning Point:** Storage policies control who can read/write files in each bucket.
+
+---
+
+### Step 2.4.2: Add File Upload Utility Functions
+
+**What to do:**
+
+Create a utility for handling file uploads to Supabase Storage. You can add this to `frontend/src/utils/storage.ts`:
+
+```typescript
+import { createClient } from '@supabase/supabase-js'
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+const supabase = createClient(supabaseUrl, supabaseAnonKey)
+
+export async function uploadFile(
+  bucket: string,
+  file: File,
+  path: string
+): Promise<string> {
+  const { data, error } = await supabase.storage
+    .from(bucket)
+    .upload(path, file, {
+      cacheControl: '3600',
+      upsert: false
+    })
+
+  if (error) {
+    throw new Error(`Upload failed: ${error.message}`)
+  }
+
+  const { data: { publicUrl } } = supabase.storage
+    .from(bucket)
+    .getPublicUrl(data.path)
+
+  return publicUrl
+}
 ```
 
 ---
 
-### Step 2.4.2: Create AI Service
-
-**What to do:**
-
-1. Create `api/src/services/ai_service.py`:
-
-```python
-"""
-AI Service - OpenAI and Anthropic Integration
-"""
-
-from openai import OpenAI
-from anthropic import Anthropic
-import os
-import json
-from typing import Dict, List, Optional
-from dotenv import load_dotenv
-from src.utils.logger import logger
-
-load_dotenv()
-
-class AIService:
-    """Service for AI-powered analysis and suggestions"""
-    
-    def __init__(self):
-        openai_key = os.getenv('OPENAI_API_KEY')
-        anthropic_key = os.getenv('ANTHROPIC_API_KEY')
-        
-        self.openai_client = OpenAI(api_key=openai_key) if openai_key else None
-        self.anthropic_client = Anthropic(api_key=anthropic_key) if anthropic_key else None
-        
-        if not self.openai_client and not self.anthropic_client:
-            logger.warning('No AI API keys configured')
-    
-    def suggest_study_design(self, objective: str, company_data: Optional[Dict] = None) -> Dict:
-        """
-        Generate AI-powered study design suggestions.
-        
-        Args:
-            objective: Research objective
-            company_data: Optional company context
-        
-        Returns:
-            Dict with study design recommendations
-        """
-        if not self.openai_client:
-            raise ValueError("OpenAI API key not configured")
-        
-        context = f"Company Context: {json.dumps(company_data)}" if company_data else "No company data provided"
-        
-        prompt = f"""You are an expert market researcher. Based on the research objective below, provide a comprehensive study design recommendation.
-
-OBJECTIVE: {objective}
-
-{context}
-
-Please provide your recommendations in the following JSON format:
-{{
-    "study_type": "<recommended study type>",
-    "reasoning": "<why this study type is appropriate>",
-    "recommended_tasks": [
-        {{
-            "type": "<camera|discussion|gallery|collage|classification|fill_blanks>",
-            "title": "<task title>",
-            "instructions": "<detailed instructions for participants>",
-            "rationale": "<why this task is valuable>"
-        }}
-    ],
-    "target_participants": <recommended number>,
-    "duration_days": <recommended duration>,
-    "segment_suggestions": {{
-        "age_range": "<suggested age range>",
-        "demographics": ["<key demographic factors>"]
-    }},
-    "key_questions": ["<3-5 key questions this study should answer>"]
-}}
-
-Ensure the tasks are diverse and will capture both qualitative and quantitative insights."""
-
-        try:
-            response = self.openai_client.chat.completions.create(
-                model="gpt-4-turbo-preview",
-                messages=[
-                    {"role": "system", "content": "You are an expert consumer research consultant with 20 years of experience designing effective research studies. Always provide practical, actionable recommendations."},
-                    {"role": "user", "content": prompt}
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.7
-            )
-            
-            result = json.loads(response.choices[0].message.content)
-            logger.success('Generated AI study design suggestions')
-            return result
-            
-        except Exception as e:
-            logger.error(f'AI suggestion failed: {str(e)}')
-            raise Exception(f"AI suggestion failed: {str(e)}")
-    
-    def analyze_text_response(self, text: str, context: Optional[str] = None) -> Dict:
-        """
-        Analyze a text response for sentiment, themes, and key phrases.
-        
-        Args:
-            text: Participant's text response
-            context: Optional context about the task/study
-        
-        Returns:
-            Dict with analysis results
-        """
-        if not self.anthropic_client:
-            raise ValueError("Anthropic API key not configured")
-        
-        prompt = f"""Analyze the following participant response and extract insights:
-
-RESPONSE: {text}
-
-{f'CONTEXT: {context}' if context else ''}
-
-Provide a JSON analysis with:
-1. sentiment: object with score (-1 to 1), label (positive/neutral/negative), and confidence (0-1)
-2. themes: array of 3-5 main themes/topics mentioned
-3. key_phrases: array of 5-10 notable quotes or phrases (extract verbatim)
-4. emotions: array of detected emotions (joy, frustration, excitement, concern, etc.)
-5. insights: array of 2-3 key takeaways
-
-Format as valid JSON."""
-
-        try:
-            response = self.anthropic_client.messages.create(
-                model="claude-3-sonnet-20240229",
-                max_tokens=2000,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
-            )
-            
-            content = response.content[0].text
-            # Extract JSON from response (may be wrapped in markdown)
-            if '```json' in content:
-                content = content.split('```json')[1].split('```')[0]
-            elif '```' in content:
-                content = content.split('```')[1].split('```')[0]
-            
-            result = json.loads(content.strip())
-            logger.success('Analyzed text response with AI')
-            return result
-            
-        except Exception as e:
-            logger.error(f'Text analysis failed: {str(e)}')
-            raise Exception(f"Text analysis failed: {str(e)}")
-    
-    def synthesize_study_insights(self, study_data: Dict) -> Dict:
-        """
-        Generate comprehensive study analysis and strategic recommendations.
-        
-        Args:
-            study_data: Complete study data including all responses
-        
-        Returns:
-            Dict with comprehensive analysis
-        """
-        if not self.openai_client:
-            raise ValueError("OpenAI API key not configured")
-        
-        prompt = f"""You are analyzing a completed consumer research study. Based on all participant responses and data, provide a comprehensive analysis.
-
-STUDY DATA:
-{json.dumps(study_data, indent=2)}
-
-Provide a comprehensive JSON analysis with:
-
-1. executive_summary: 3-4 sentence overview of key findings
-2. key_insights: array of 7-10 most important discoveries
-3. themes: array of objects with theme, frequency, sentiment, description, examples
-4. sentiment_analysis: overall percentages, by_segment, trends
-5. recommendations: array of 5-7 strategic actions with priority, category, recommendation, rationale, expected_impact
-6. opportunities: areas for growth or innovation
-7. risks: concerns or challenges identified
-8. next_steps: specific actions to take
-
-Be specific, actionable, and business-focused."""
-
-        try:
-            response = self.openai_client.chat.completions.create(
-                model="gpt-4-turbo-preview",
-                messages=[
-                    {"role": "system", "content": "You are a senior consumer insights analyst who translates research data into actionable business strategy."},
-                    {"role": "user", "content": prompt}
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.6
-            )
-            
-            result = json.loads(response.choices[0].message.content)
-            logger.success('Generated comprehensive study insights')
-            return result
-            
-        except Exception as e:
-            logger.error(f'Study synthesis failed: {str(e)}')
-            raise Exception(f"Study synthesis failed: {str(e)}")
-
-# Global instance
-ai_service = AIService()
-```
+**Note:** The AI Service section has been moved to Phase 2.6 (the end). Continue with Phase 2.5 below.
 
 ---
 
-### Step 2.4.3: Create AI API Endpoints
+## 🎨 Phase 2.5: Complete Frontend Integration (Days 8-10)
 
 **What to do:**
 
-1. Create `api/src/app/ai.py`:
+1. If not exists, create `api/src/app/ai.py`:
 
 ```python
 """
@@ -1191,15 +1169,40 @@ def synthesize_study():
     return insights
 ```
 
-2. Register in `api/run.py` and add frontend functions.
+2. Register AI blueprint in `api/run.py`:
+```python
+# Add import
+from src.app import users, studies, organizations, tasks, participants, responses, ai
+
+# Add registration
+app.register_blueprint(ai.bp, url_prefix='/ai')
+```
+
+3. Add frontend API functions to `frontend/src/utils/api.ts`:
+```typescript
+export async function getAISuggestions(objective: string, companyData?: any) {
+    return await accessAPI('/ai/suggest-study-design', 'POST', { 
+        objective, 
+        company_data: companyData 
+    });
+}
+
+export async function analyzeTextResponse(text: string, context?: string) {
+    return await accessAPI('/ai/analyze-text', 'POST', { text, context });
+}
+
+export async function synthesizeStudyInsights(studyData: any) {
+    return await accessAPI('/ai/synthesize-study', 'POST', { study_data: studyData });
+}
+```
 
 ---
 
-### Step 2.4.4: Integrate AI into Create Study Page
+### Step 2.6.4: Integrate AI into Create Study Page (Optional)
 
 **What to do:**
 
-Update the "AI Suggestion" button in `frontend/src/app/studies/create/page.tsx` to actually call the API:
+Update the "AI Suggestion" button in `frontend/src/app/studies/create/page.tsx` to call the AI API (if implemented):
 
 ```typescript
 const handleAISuggestion = async () => {
@@ -1250,9 +1253,11 @@ const handleAISuggestion = async () => {
 }
 ```
 
+**Note:** If you haven't implemented AI service yet, you can disable or hide the AI suggestion button in the UI until later.
+
 ---
 
-## 📦 Phase 2.5: Storage Setup (Day 9)
+## ✅ Phase 2 Completion Checklist
 
 ### Step 2.5.1: Configure Supabase Storage Buckets
 
@@ -1296,9 +1301,9 @@ USING (bucket_id = 'participant-uploads');
 
 ---
 
-## 🎨 Phase 2.6: Complete Frontend Integration (Days 10-12)
+## 🎨 Phase 2.5: Complete Frontend Integration (Days 8-10)
 
-### Step 2.6.1: Update Study Detail Page
+### Step 2.5.1: Update Study Detail Page
 
 **What to do:**
 
@@ -1318,7 +1323,7 @@ Update `frontend/src/app/studies/[id]/page.tsx` to:
 
 ---
 
-### Step 2.6.2: Create Participant Response Page
+### Step 2.5.2: Create Participant Response Page
 
 **What to do:**
 
@@ -1331,45 +1336,153 @@ Create a new page `frontend/src/app/participant/[studyId]/[participantId]/page.t
 
 This is the participant-facing interface.
 
+**Key features to implement:**
+- Video recording/upload for camera tasks
+- Image upload for gallery/collage tasks
+- Text input for discussion/fill_blanks tasks
+- Drag-and-drop for classification tasks
+- Progress indicator (how many tasks completed)
+- Save draft functionality
+- Submit all responses
+
+---
+
+## 🤖 Phase 2.6: AI Service Integration (Days 11-12) - **OPTIONAL, DO THIS LAST**
+
+**Note:** AI functionality is being implemented at the end. You can skip this phase entirely if you want to focus on core functionality first. The platform will work without AI - it just won't have AI-powered suggestions and analysis.
+
+### Step 2.6.1: Set Up AI API Keys (Optional)
+
+**What to do:**
+
+1. Decide which AI provider to use (see `AI_PROVIDER_COMPARISON.md` and `RESPONSE_PROCESSING_STRATEGY.md`)
+2. Get API key(s) from your chosen provider:
+   - OpenAI: [platform.openai.com](https://platform.openai.com)
+   - Anthropic: [console.anthropic.com](https://console.anthropic.com) (optional)
+   - Hugging Face: [huggingface.co](https://huggingface.co) (free tier available)
+3. Add to `api/.env`:
+```env
+OPENAI_API_KEY=sk-... # Optional
+ANTHROPIC_API_KEY=sk-ant-... # Optional
+HUGGINGFACE_API_KEY=... # Optional
+```
+
+**Important:** You don't need AI to complete the MVP. This is optional functionality that can be added later.
+
+---
+
+### Step 2.6.2: Create AI Service (Optional)
+
+**Note:** The AI service file may already exist at `api/src/services/ai_service.py`. Check if it's already implemented.
+
+**What to do:**
+
+1. If not exists, create `api/src/services/ai_service.py` with the AI service implementation (see Phase 2.4.2 in the original guide or refer to `RESPONSE_PROCESSING_STRATEGY.md` for implementation details).
+
+---
+
+### Step 2.6.3: Create AI API Endpoints (Optional)
+
+**What to do:**
+
+1. If not exists, create `api/src/app/ai.py` with AI API routes (study design suggestions, text analysis, study synthesis).
+
+2. Register AI blueprint in `api/run.py`:
+```python
+# Add import
+from src.app import users, studies, organizations, tasks, participants, responses, ai
+
+# Add registration
+app.register_blueprint(ai.bp, url_prefix='/ai')
+```
+
+3. Add frontend API functions to `frontend/src/utils/api.ts`:
+```typescript
+export async function getAISuggestions(objective: string, companyData?: any) {
+    return await accessAPI('/ai/suggest-study-design', 'POST', { 
+        objective, 
+        company_data: companyData 
+    });
+}
+
+export async function analyzeTextResponse(text: string, context?: string) {
+    return await accessAPI('/ai/analyze-text', 'POST', { text, context });
+}
+
+export async function synthesizeStudyInsights(studyData: any) {
+    return await accessAPI('/ai/synthesize-study', 'POST', { study_data: studyData });
+}
+```
+
+---
+
+### Step 2.6.4: Integrate AI into Create Study Page (Optional)
+
+**What to do:**
+
+Update the "AI Suggestion" button in `frontend/src/app/studies/create/page.tsx` to call the AI API (if implemented). See the original Phase 2.4.4 for detailed implementation.
+
+**Note:** If you haven't implemented AI service yet, you can disable or hide the AI suggestion button in the UI until later.
+
 ---
 
 ## ✅ Phase 2 Completion Checklist
 
-Before moving to Phase 3, ensure you have:
+Before considering MVP complete, ensure you have:
 
+**Core Functionality (REQUIRED):**
 - [ ] Tasks API fully functional (CRUD + reorder)
 - [ ] Participants API fully functional (CRUD + bulk create)
 - [ ] Responses API fully functional (CRUD)
-- [ ] AI Service integrated and working
 - [ ] Storage buckets configured
-- [ ] Create Study page saves to database
+- [ ] Create Study page saves study AND tasks to database
 - [ ] Study Detail page shows tasks and participants
-- [ ] Can add/edit tasks from UI
-- [ ] Can invite participants from UI
-- [ ] Participant response page works
+- [ ] Can add/edit/delete tasks from UI
+- [ ] Can invite participants from UI (bulk import supported)
+- [ ] Participant response page works (all task types)
+- [ ] File upload works (videos, images)
+- [ ] Response viewing in study detail page
 - [ ] All API endpoints tested with curl/Postman
+
+**AI Functionality (OPTIONAL - Can be added later):**
+- [ ] AI Service implemented (optional)
+- [ ] AI suggestions work in create study page (optional)
+- [ ] Text response analysis works (optional)
+- [ ] Study insights synthesis works (optional)
 
 ---
 
 ## 🚀 Next Steps: Phase 3
 
-Once Phase 2 is complete, you'll have a fully functional MVP! Phase 3 will add:
+Once Phase 2 core functionality is complete, you'll have a fully functional MVP that works without AI! Phase 3 will add:
 - Advanced analytics dashboard
 - Real-time collaboration
 - Email/WhatsApp distribution
 - PDF report generation
+- Enhanced AI features (if you skipped Phase 2.6)
 - And more!
+
+**Note:** You can continue building Phase 3 features even if you haven't implemented AI yet. The platform is fully functional for research studies without AI - it just provides manual workflows instead of AI-assisted ones.
 
 ---
 
 ## 📚 Learning Resources
 
-- **OpenAI API**: [platform.openai.com/docs](https://platform.openai.com/docs)
-- **Anthropic API**: [docs.anthropic.com](https://docs.anthropic.com)
 - **Supabase Storage**: [supabase.com/docs/guides/storage](https://supabase.com/docs/guides/storage)
 - **React Hooks**: [react.dev/reference/react](https://react.dev/reference/react)
+- **File Uploads in React**: [react-dropzone.js.org](https://react-dropzone.js.org/)
+- **AI Provider Comparison**: See `AI_PROVIDER_COMPARISON.md` and `RESPONSE_PROCESSING_STRATEGY.md` (when ready for AI)
 
 ---
 
-**Ready to start Phase 2? Begin with Step 2.1.1!** 🚀
+## ⚠️ Important Reminders
+
+1. **AI is Optional:** You don't need AI to have a working MVP. Focus on core functionality first.
+2. **Verify Backend First:** Check if backend APIs already exist before creating them from scratch.
+3. **Test as You Go:** Test each feature before moving to the next.
+4. **Frontend Integration is Critical:** The backend APIs are useless without frontend integration.
+
+---
+
+**Ready to start Phase 2? Begin with Step 2.1.1 - Verify Backend!** 🚀
 

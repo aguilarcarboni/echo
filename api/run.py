@@ -8,24 +8,48 @@ from src.utils.logger import logger
 from datetime import timedelta
 from src.utils.response import format_response
 from src.utils.exception import ServiceError
-from src.app import users, studies, organizations, tasks, participants
+from src.app import users, studies, organizations, tasks, participants, responses
+from src.app import participant_public
 
 load_dotenv()
 
 public_routes = ['token', 'index']
 
 def jwt_required_except_login():
-    logger.info(f'\nRequest endpoint: {request.endpoint} from {request.remote_addr}')
-    if request.endpoint not in public_routes:
+    endpoint_name = request.endpoint or 'None'
+    logger.info(f'\nRequest endpoint: {endpoint_name} from {request.remote_addr} [{request.method}] {request.path}')
+    
+    # Skip authentication for OPTIONS requests (CORS preflight)
+    if request.method == 'OPTIONS':
+        return None  # Let Flask-CORS handle the preflight request
+    
+    # Skip authentication if endpoint is None (404 routes, static files, etc.)
+    if request.endpoint is None:
+        return None
+    
+    # Check if endpoint is in public routes or starts with participant_public (blueprint routes)
+    is_public = (
+        request.endpoint in public_routes or
+        (request.endpoint and request.endpoint.startswith('participant_public.'))
+    )
+    
+    if not is_public:
         try:
             verify_jwt_in_request()
         except exceptions.JWTExtendedException as e:
             error_msg = str(e)
-            logger.error(f'JWT authentication failed: {error_msg}')
+            logger.error(f'JWT authentication failed: {error_msg} (Endpoint: {endpoint_name}, Method: {request.method}, Path: {request.path})')
+            
             # Provide more helpful error messages
-            if "Not enough segments" in error_msg or "Invalid token" in error_msg:
-                return jsonify({"msg": "Invalid or missing token. Please get a token from /token endpoint first."}), 401
-            return jsonify({"msg": "Unauthorized", "error": error_msg}), 401
+            if "Not enough segments" in error_msg or "Invalid token" in error_msg or "Missing" in error_msg:
+                return jsonify({
+                    "error": "Authentication required",
+                    "message": "Invalid or missing token. Please get a token from /token endpoint first.",
+                    "help": "Run: curl -X POST http://127.0.0.1:5000/token -H 'Content-Type: application/json' -d '{\"token\": \"all\"}'"
+                }), 401
+            return jsonify({"error": "Unauthorized", "message": error_msg}), 401
+    
+    return None  # Continue with the request
  
 def start_api():
 
@@ -36,8 +60,16 @@ def start_api():
         raise Exception("Failed to initialize API - could not fetch JWT secret key")
     
     app = Flask(__name__, static_folder='static')
-    cors = CORS(app, resources={r"/*": {"origins": "*"}})
-    app.config['CORS_HEADERS'] = 'Content-Type'
+    # Configure CORS to allow all origins and handle preflight requests
+    cors = CORS(app, 
+                resources={r"/*": {
+                    "origins": "*",
+                    "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+                    "allow_headers": ["Content-Type", "Authorization", "Cache-Control"],
+                    "expose_headers": ["Content-Type"],
+                    "supports_credentials": False
+                }})
+    app.config['CORS_HEADERS'] = 'Content-Type, Authorization'
     
     # Add JWT configuration
     app.config['JWT_SECRET_KEY'] = jwt_secret_key
@@ -123,7 +155,9 @@ def start_api():
     app.register_blueprint(organizations.bp, url_prefix='/organizations')
     app.register_blueprint(tasks.bp, url_prefix='/tasks')
     app.register_blueprint(participants.bp, url_prefix='/participants')
-    
+    app.register_blueprint(responses.bp, url_prefix='/responses')
+    # Public participant endpoints (no JWT required)
+    app.register_blueprint(participant_public.bp, url_prefix='/participant')
     return app
 
 app = start_api()

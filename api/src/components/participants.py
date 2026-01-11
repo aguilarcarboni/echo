@@ -6,6 +6,7 @@ from src.utils.exception import handle_exception
 from src.utils.connectors.supabase import db
 from src.utils.logger import logger
 from datetime import datetime
+import secrets
 
 logger.announcement('Initializing Participants Service', type='info')
 
@@ -44,6 +45,11 @@ def create_participant(participant: dict = None):
     if 'invited_at' not in participant:
         participant['invited_at'] = current_time
     
+    # Generate access code if not provided (for participant authentication)
+    if 'access_code' not in participant:
+        # Generate a secure random access code (8 characters)
+        participant['access_code'] = secrets.token_urlsafe(6)[:8].upper()
+    
     participant_id = db.create(table='participants', data=participant)
     logger.success(f'Created participant with id: {participant_id}')
     return participant_id
@@ -58,6 +64,7 @@ def read_participants(query=None):
             - id: Filter by participant ID
             - study_id: Filter by study
             - status: Filter by status
+            - access_code: Filter by access code
     
     Returns:
         list: List of participant dictionaries
@@ -68,6 +75,33 @@ def read_participants(query=None):
     participants = db.read(table='participants', query=query)
     logger.info(f'Retrieved {len(participants)} participants')
     return participants
+
+@handle_exception
+def get_participant_by_access_code(access_code: str, study_id: str = None):
+    """
+    Get a participant by their access code (for participant authentication).
+    
+    Args:
+        access_code (str): The participant's access code
+        study_id (str): Optional study ID to verify the participant belongs to this study
+    
+    Returns:
+        dict: Participant dictionary if found, None otherwise
+    """
+    if not access_code:
+        raise Exception("Access code is required")
+    
+    query = {'access_code': access_code}
+    if study_id:
+        query['study_id'] = study_id
+    
+    participants = db.read(table='participants', query=query)
+    if participants and len(participants) > 0:
+        logger.info(f'Found participant with access code: {access_code}')
+        return participants[0]
+    
+    logger.warning(f'No participant found with access code: {access_code}')
+    return None
 
 @handle_exception
 def update_participant(participant_id: str, data: dict = None):
@@ -148,6 +182,8 @@ def bulk_create_participants(study_id: str, contacts: list, demographics: dict =
             'invited_at': current_time,
             'created_at': current_time,
             'updated_at': current_time,
+            # Generate unique access code for each participant
+            'access_code': secrets.token_urlsafe(6)[:8].upper(),
         }
         
         if demographics:

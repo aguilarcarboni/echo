@@ -5,10 +5,9 @@ import { Navbar } from "@/components/navbar"
 import { Sidebar } from "@/components/sidebar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { participants } from "@/lib/data"
 import Link from "next/link"
 import { ArrowRight, Users, FileText, Activity } from "lucide-react"
-import { getStudies } from "@/utils/api"
+import { getStudies, getParticipants } from "@/utils/api"
 
 interface Study {
   id: string
@@ -20,29 +19,57 @@ interface Study {
   duration_days?: number
 }
 
+interface Participant {
+  id: string
+  contact: string
+  demographics: {
+    age?: number
+    gender?: string
+    location?: string
+  } | string
+  status: string
+  study_id?: string
+}
+
 export default function DashboardPage() {
   const [studies, setStudies] = useState<Study[]>([])
+  const [recentParticipants, setRecentParticipants] = useState<Participant[]>([])
+  const [totalParticipants, setTotalParticipants] = useState(0)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    async function fetchStudies() {
+    async function fetchData() {
       try {
-        const data = await getStudies()
+        const [studiesData, participantsData] = await Promise.all([
+          getStudies(),
+          getParticipants()
+        ])
+        
         // Normalize API response to match UI expectations
-        const normalizedStudies = data.map((study: any) => ({
+        const normalizedStudies = studiesData.map((study: any) => ({
           ...study,
           numParticipants: study.numParticipants ?? study.target_participants ?? 0,
           durationDays: study.durationDays ?? study.duration_days ?? 0,
         }))
         setStudies(normalizedStudies)
+        
+        // Normalize participants data
+        const normalizedParticipants = Array.isArray(participantsData) ? participantsData : []
+        setTotalParticipants(normalizedParticipants.length)
+        
+        // Get recent participants (last 3, reversed to show most recent first)
+        // Sort by id (assuming UUIDs or sequential IDs) as a proxy for recency
+        // In a real app, you'd sort by created_at timestamp
+        const sorted = [...normalizedParticipants].reverse().slice(0, 3)
+        setRecentParticipants(sorted)
       } catch (error) {
-        console.error('Failed to fetch studies:', error)
+        console.error('Failed to fetch data:', error)
       } finally {
         setLoading(false)
       }
     }
     
-    fetchStudies()
+    fetchData()
   }, [])
 
   if (loading) {
@@ -50,9 +77,6 @@ export default function DashboardPage() {
   }
 
   const activeStudies = studies.filter((s) => s.status === "active")
-
-  const recentParticipants = participants.slice(-3).reverse()
-  const totalParticipants = participants.length
 
   return (
     <div className="min-h-screen bg-black">
@@ -103,23 +127,26 @@ export default function DashboardPage() {
         {/* Studies Table */}
         <Card className="bg-gray-950 border-gray-800 mb-8">
           <CardHeader>
-            <CardTitle className="text-white">All Studies</CardTitle>
-            <CardDescription className="text-gray-400">Manage your research studies</CardDescription>
+            <CardTitle className="text-white">Active Studies</CardTitle>
+            <CardDescription className="text-gray-400">Currently running research studies</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-gray-800">
-                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Name</th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Status</th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Participants</th>
-                    <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Duration</th>
-                    <th className="text-right py-3 px-4 text-sm font-medium text-gray-400">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {studies.map((study) => (
+            {activeStudies.length === 0 ? (
+              <p className="text-gray-400 text-center py-8">No active studies at the moment</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-800">
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Name</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Status</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Participants</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Duration</th>
+                      <th className="text-right py-3 px-4 text-sm font-medium text-gray-400">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeStudies.map((study) => (
                     <tr key={study.id} className="border-b border-gray-800/50 hover:bg-gray-900/50">
                       <td className="py-3 px-4 text-white">{study.name}</td>
                       <td className="py-3 px-4">
@@ -149,10 +176,11 @@ export default function DashboardPage() {
                         </Link>
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -164,31 +192,40 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {recentParticipants.map((participant) => (
-                <div
-                  key={participant.id}
-                  className="flex items-center justify-between p-4 rounded-lg bg-gray-900/50 border border-gray-800"
-                >
-                  <div>
-                    <p className="text-white font-medium">{participant.contact}</p>
-                    <p className="text-sm text-gray-400">
-                      {participant.demographics.age} yrs • {participant.demographics.gender} •{" "}
-                      {participant.demographics.location}
-                    </p>
-                  </div>
-                  <span
-                    className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${
-                      participant.status === "completed"
-                        ? "bg-green-500/20 text-green-400"
-                        : participant.status === "started"
-                          ? "bg-blue-500/20 text-blue-400"
-                          : "bg-gray-500/20 text-gray-400"
-                    }`}
-                  >
-                    {participant.status}
-                  </span>
-                </div>
-              ))}
+              {recentParticipants.length === 0 ? (
+                <p className="text-gray-400 text-center py-8">No participants yet</p>
+              ) : (
+                recentParticipants.map((participant) => {
+                  const demographics = typeof participant.demographics === 'string'
+                    ? JSON.parse(participant.demographics || '{}')
+                    : participant.demographics || {}
+                  return (
+                    <div
+                      key={participant.id}
+                      className="flex items-center justify-between p-4 rounded-lg bg-gray-900/50 border border-gray-800"
+                    >
+                      <div>
+                        <p className="text-white font-medium">{participant.contact}</p>
+                        <p className="text-sm text-gray-400">
+                          {demographics.age ? `${demographics.age} yrs` : 'Age N/A'} • {demographics.gender || 'N/A'} •{" "}
+                          {demographics.location || 'N/A'}
+                        </p>
+                      </div>
+                      <span
+                        className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${
+                          participant.status === "completed"
+                            ? "bg-green-500/20 text-green-400"
+                            : participant.status === "started"
+                              ? "bg-blue-500/20 text-blue-400"
+                              : "bg-gray-500/20 text-gray-400"
+                        }`}
+                      >
+                        {participant.status || 'invited'}
+                      </span>
+                    </div>
+                  )
+                })
+              )}
             </div>
           </CardContent>
         </Card>

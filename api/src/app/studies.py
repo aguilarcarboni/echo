@@ -6,10 +6,11 @@ It handles request/response formatting and delegates business logic to component
 """
 
 from flask import Blueprint, request
-from src.components.studies import create_study, read_studies, update_study, delete_study
+from src.components.studies import create_study, read_studies, update_study, delete_study, get_or_generate_study_access_code
 from src.utils.response import format_response
 from src.utils.logger import logger 
 import uuid
+import os
 
 bp = Blueprint('studies', __name__)
 
@@ -155,3 +156,30 @@ def delete():
     deleted_id = delete_study(study_id=study_id)
     return {'id': deleted_id, 'message': 'Study deleted successfully'}
 
+@bp.route('/<study_id>/access-link', methods=['GET'])
+@format_response
+def get_access_link(study_id: str):
+    """
+    Get or generate the participant access link for a study (admin only).
+    
+    Returns:
+    {
+        "study_id": "uuid",
+        "study_access_code": "ABC123XYZW",
+        "url": "http://localhost:3000/participant/[studyId]/join?code=ABC123XYZW"
+    }
+    """
+    logger.info(f'Received request to get access link for study: {study_id}')
+    
+    # Get or generate access code
+    access_code = get_or_generate_study_access_code(study_id=study_id)
+    
+    # Build the full URL (use environment variable for frontend URL if available)
+    frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:3000')
+    participant_url = f"{frontend_url}/participant/{study_id}/join?code={access_code}"
+    
+    return {
+        'study_id': study_id,
+        'study_access_code': access_code,
+        'url': participant_url
+    }

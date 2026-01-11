@@ -71,7 +71,21 @@ class Supabase:
             safe_url = db_url.split('@')[1] if '@' in db_url else '***'
             logger.info(f'Attempting to connect to: postgresql://***@{safe_url}')
             
-            self.engine = create_engine(self.db_url)
+            # Configure connection pooling to prevent connection timeouts
+            # pool_pre_ping: Test connections before using them (checks if connection is still alive)
+            # pool_recycle: Recycle connections after 1 hour (3600 seconds) to prevent stale connections
+            # pool_size: Maximum number of connections to keep in the pool
+            # max_overflow: Maximum number of connections that can be created beyond pool_size
+            # pool_timeout: Maximum time to wait for a connection from the pool
+            self.engine = create_engine(
+                self.db_url,
+                pool_pre_ping=True,  # Test connections before using them
+                pool_recycle=3600,   # Recycle connections after 1 hour (prevents stale connections)
+                pool_size=5,         # Keep 5 connections in the pool
+                max_overflow=10,     # Allow up to 10 additional connections beyond pool_size
+                pool_timeout=30,     # Wait up to 30 seconds for a connection
+                echo=False           # Set to True for SQL query logging (useful for debugging)
+            )
             
             self.Base = declarative_base()
             self._setup_models()
@@ -133,6 +147,7 @@ class Supabase:
             start_date = Column(Text, nullable=True)
             end_date = Column(Text, nullable=True)
             segment_criteria = Column(JSONB, nullable=True)
+            study_access_code = Column(Text, nullable=True, unique=True)  # For participant registration links
             created_at = Column(Text, nullable=True)
             updated_at = Column(Text, nullable=True)
 
@@ -163,6 +178,7 @@ class Supabase:
             study_id = Column(UUID(as_uuid=True), ForeignKey('studies.id', ondelete='CASCADE'), nullable=False)
             contact = Column(Text, nullable=False)
             demographics = Column(JSONB, nullable=True)
+            access_code = Column(Text, nullable=True, unique=True)  # Added for participant authentication
             status = Column(Text, default='invited')
             invited_at = Column(Text, nullable=True)
             started_at = Column(Text, nullable=True)

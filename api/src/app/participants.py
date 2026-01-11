@@ -130,3 +130,42 @@ def delete():
     
     deleted_id = delete_participant(participant_id=participant_id)
     return {'id': deleted_id, 'message': 'Participant deleted successfully'}
+
+@bp.route('/bulk-create', methods=['POST'])
+@format_response
+def bulk_create():
+    """
+    Create multiple participants at once.
+    
+    Request body:
+    {
+        "study_id": "study-uuid",
+        "contacts": ["email1@example.com", "email2@example.com"],
+        "demographics": {
+            "age": "int",
+            "gender": "male|female|other",
+            "location": "string"
+        } // optional
+    }
+    
+    OR
+    
+    {
+        "study_id": "study-uuid",
+        "participants": ["email1@example.com", "email2@example.com"],
+        "demographics": { ... } // optional
+    }
+    """
+    logger.info('Received request to bulk create participants')
+    payload = request.get_json(force=True)
+    study_id = payload.get('study_id')
+    contacts = payload.get('contacts') or payload.get('participants')  # Support both for flexibility
+    demographics = payload.get('demographics')
+    
+    if not study_id:
+        raise Exception("Study ID is required")
+    if not contacts:
+        raise Exception("Contacts list is required")
+    
+    result = bulk_create_participants(study_id=study_id, contacts=contacts, demographics=demographics)
+    return result

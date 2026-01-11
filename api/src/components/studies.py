@@ -9,6 +9,7 @@ from src.utils.exception import handle_exception
 from src.utils.connectors.supabase import db
 from src.utils.logger import logger
 from datetime import datetime
+import secrets
 
 logger.announcement('Initializing Studies Service', type='info')
 
@@ -55,6 +56,11 @@ def create_study(study: dict = None):
         study['target_participants'] = 50
     if 'duration_days' not in study:
         study['duration_days'] = 7
+    
+    # Generate study access code if not provided (for participant registration links)
+    if 'study_access_code' not in study or not study.get('study_access_code'):
+        # Generate a secure random access code (10 characters)
+        study['study_access_code'] = secrets.token_urlsafe(8)[:10].upper()
     
     study_id = db.create(table='studies', data=study)
     logger.success(f'Created study with id: {study_id}')
@@ -123,6 +129,37 @@ def delete_study(study_id: str):
     deleted_id = db.delete(table='studies', query={'id': study_id})
     logger.success(f'Deleted study with id: {deleted_id}')
     return deleted_id
+
+@handle_exception
+def get_or_generate_study_access_code(study_id: str):
+    """
+    Get the study access code, generating it if it doesn't exist.
+    
+    Args:
+        study_id (str): The ID of the study
+    
+    Returns:
+        str: The study access code
+    """
+    if not study_id:
+        raise Exception("Study ID is required")
+    
+    # Get the study
+    studies = read_studies(query={'id': study_id})
+    if not studies or len(studies) == 0:
+        raise Exception("Study not found")
+    
+    study = studies[0]
+    
+    # Generate access code if it doesn't exist
+    if not study.get('study_access_code'):
+        # Generate a secure random access code (10 characters)
+        access_code = secrets.token_urlsafe(8)[:10].upper()
+        update_study(study_id=study_id, data={'study_access_code': access_code})
+        logger.info(f'Generated study access code for study {study_id}')
+        return access_code
+    
+    return study.get('study_access_code')
 
 logger.announcement('Initialized Studies Service', type='success')
 

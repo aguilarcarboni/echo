@@ -1,6 +1,6 @@
-from sqlalchemy import create_engine, Table, MetaData
+from sqlalchemy import create_engine, Table, MetaData, text
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, DisconnectionError, OperationalError
 from sqlalchemy.orm import Session
 from datetime import datetime
 from functools import wraps
@@ -9,6 +9,7 @@ from src.utils.logger import logger
 from src.utils.exception import handle_exception
 import re
 from sqlalchemy import inspect
+import time
 
 class DatabaseManager:
     
@@ -162,17 +163,83 @@ class DatabaseManager:
     def with_session(self, func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            session = Session(bind=self.engine)
-            try:
-                result = func(session, *args, **kwargs)
-                session.commit()
-                return result
-            except Exception as e:
-                session.rollback()
-                logger.error(f"Database error in {func.__name__}: {str(e)}")
-                raise Exception(f"Database error: {str(e)}")
-            finally:
-                session.close()
+            max_retries = 3
+            retry_delay = 0.5  # seconds
+            last_exception = None
+            
+            for attempt in range(max_retries):
+                session = None
+                try:
+                    # Create a new session (pool_pre_ping will automatically test the connection)
+                    session = Session(bind=self.engine)
+                    
+                    # Execute the actual function
+                    result = func(session, *args, **kwargs)
+                    session.commit()
+                    return result
+                    
+                except (DisconnectionError, OperationalError, SQLAlchemyError) as e:
+                    # Connection or SQL error - rollback and retry
+                    last_exception = e
+                    if session:
+                        try:
+                            session.rollback()
+                        except:
+                            pass
+                        try:
+                            session.close()
+                        except:
+                            pass
+                        session = None
+                    
+                    error_msg = str(e)
+                    
+                    # Check if it's a connection-related error that we should retry
+                    is_connection_error = (
+                        'server closed the connection' in error_msg.lower() or
+                        'connection unexpectedly' in error_msg.lower() or
+                        'connection' in error_msg.lower() or
+                        isinstance(e, (DisconnectionError, OperationalError))
+                    )
+                    
+                    if is_connection_error and attempt < max_retries - 1:
+                        wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                        logger.warning(f"Database connection error in {func.__name__} (attempt {attempt + 1}/{max_retries}): {error_msg}. Retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                        continue
+                    elif attempt >= max_retries - 1:
+                        logger.error(f"Database connection error in {func.__name__} after {max_retries} attempts: {error_msg}")
+                        raise Exception(f"Database connection error after {max_retries} retries: {error_msg}")
+                    else:
+                        # Non-retryable error
+                        logger.error(f"Database error in {func.__name__}: {error_msg}")
+                        raise Exception(f"Database error: {error_msg}")
+                    
+                except Exception as e:
+                    # Other errors - rollback and raise (no retry)
+                    last_exception = e
+                    if session:
+                        try:
+                            session.rollback()
+                        except:
+                            pass
+                    
+                    error_msg = str(e)
+                    logger.error(f"Database error in {func.__name__}: {error_msg}")
+                    raise Exception(f"Database error: {error_msg}")
+                    
+                finally:
+                    # Always close the session if it's still open
+                    if session:
+                        try:
+                            session.close()
+                        except:
+                            pass
+            
+            # Should never reach here, but just in case
+            if last_exception:
+                raise Exception(f"Database error in {func.__name__}: Failed after {max_retries} retries: {str(last_exception)}")
+            raise Exception(f"Database error in {func.__name__}: Failed after {max_retries} retries")
         return wrapper
 
     def _ids_to_string(self, data: dict):
@@ -360,7 +427,9 @@ class DatabaseManager:
             
             logger.info(f'Updating entry timestamp.')
             # Format timestamp as ISO 8601 for PostgreSQL
-            data['updated_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            # Only set updated_at if the column exists in the table
+            if 'updated_at' in tbl.c:
+                data['updated_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             data = self._dates_to_timestamp(data)
 
             sql_query.update(data)
