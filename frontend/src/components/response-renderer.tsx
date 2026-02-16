@@ -89,11 +89,40 @@ export function ResponseRenderer({ responseData, taskType }: ResponseRendererPro
 
   const data = parsedData
 
-  // Discussion or Fill Blanks - show text
-  if (taskType === 'discussion' || taskType === 'fill_blanks') {
+  // Discussion - show text
+  if (taskType === 'discussion') {
     return (
       <div className="p-4 rounded-lg bg-gray-900 border border-gray-800">
         <p className="text-white whitespace-pre-wrap">{data.text || 'No text provided'}</p>
+      </div>
+    )
+  }
+
+  // Fill Blanks - show filled text with highlights
+  if (taskType === 'fill_blanks') {
+    if (data.filledText) {
+      return (
+        <div className="p-4 rounded-lg bg-gray-900 border border-gray-800">
+          <p className="text-white whitespace-pre-wrap">{data.filledText}</p>
+          {data.answers && Object.keys(data.answers).length > 0 && (
+            <div className="mt-4 pt-4 border-t border-gray-800">
+              <p className="text-xs text-gray-400 mb-2">Individual answers:</p>
+              <div className="space-y-1">
+                {Object.entries(data.answers).map(([key, value]) => (
+                  <div key={key} className="text-sm">
+                    <span className="text-gray-500">{key}:</span>{' '}
+                    <span className="text-white">{value as string}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )
+    }
+    return (
+      <div className="p-4 rounded-lg bg-gray-900 border border-gray-800">
+        <p className="text-gray-400 text-sm">No response provided</p>
       </div>
     )
   }
@@ -151,8 +180,8 @@ export function ResponseRenderer({ responseData, taskType }: ResponseRendererPro
     )
   }
 
-  // Gallery or Collage - show images
-  if (taskType === 'gallery' || taskType === 'collage') {
+  // Gallery - show images
+  if (taskType === 'gallery') {
     const images = Array.isArray(data.images) ? data.images : Array.isArray(data.image_urls) ? data.image_urls : []
     if (images.length === 0) {
       return (
@@ -206,6 +235,69 @@ export function ResponseRenderer({ responseData, taskType }: ResponseRendererPro
     )
   }
 
+  // Collage - show images with layout
+  if (taskType === 'collage') {
+    const images = Array.isArray(data.images) ? data.images : []
+    const layout = data.layout || { type: 'grid', rows: 3, cols: 3 }
+    
+    if (images.length === 0) {
+      return (
+        <div className="p-4 rounded-lg bg-gray-900 border border-gray-800">
+          <p className="text-gray-400 text-sm">No images uploaded</p>
+        </div>
+      )
+    }
+
+    // Create grid with images at their positions
+    const cellSize = 120
+    const gridCells: Array<{ row: number; col: number; image?: any }> = []
+    
+    for (let row = 0; row < layout.rows; row++) {
+      for (let col = 0; col < layout.cols; col++) {
+        const image = images.find((img: any) => 
+          img.position && img.position.row === row && img.position.col === col
+        )
+        gridCells.push({ row, col, image })
+      }
+    }
+
+    return (
+      <div className="space-y-4">
+        <div
+          className="inline-grid gap-2 p-4 border border-gray-800 rounded-lg bg-gray-950"
+          style={{
+            gridTemplateColumns: `repeat(${layout.cols}, ${cellSize}px)`,
+            gridTemplateRows: `repeat(${layout.rows}, ${cellSize}px)`,
+          }}
+        >
+          {gridCells.map((cell, index) => (
+            <div
+              key={`${cell.row}-${cell.col}`}
+              className={`
+                relative border-2 rounded
+                ${cell.image ? 'border-gray-700 bg-gray-900' : 'border-dashed border-gray-800 bg-gray-900/50'}
+              `}
+              style={{ width: cellSize, height: cellSize }}
+            >
+              {cell.image && (
+                <img
+                  src={cell.image.url || cell.image}
+                  alt={`Collage image at ${cell.row}, ${cell.col}`}
+                  className="w-full h-full object-cover rounded"
+                  loading="lazy"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement
+                    target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100"%3E%3Crect fill="%23333" width="100" height="100"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%23999" font-family="Arial" font-size="12"%3EImage not found%3C/text%3E%3C/svg%3E'
+                  }}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
   // Classification - show rankings if available
   if (taskType === 'classification') {
     const rankings = Array.isArray(data.rankings) ? data.rankings : Array.isArray(data.classification) ? data.classification : []
@@ -216,21 +308,30 @@ export function ResponseRenderer({ responseData, taskType }: ResponseRendererPro
         </div>
       )
     }
+    // Sort by rank if available
+    const sortedRankings = [...rankings].sort((a: any, b: any) => {
+      const rankA = a.rank || a.rank === 0 ? a.rank : 999
+      const rankB = b.rank || b.rank === 0 ? b.rank : 999
+      return rankA - rankB
+    })
     return (
       <div className="space-y-2">
-        {rankings.map((ranking: any, index: number) => (
-          <div key={index} className="p-3 rounded-lg bg-gray-900 border border-gray-800">
-            <div className="flex items-center gap-3">
-              <Badge className="bg-pink-500/20 text-pink-400 border-pink-500/20">
-                #{index + 1}
-              </Badge>
-              <span className="text-white">{ranking.label || ranking.name || JSON.stringify(ranking)}</span>
-              {ranking.score && (
-                <span className="ml-auto text-sm text-gray-400">Score: {ranking.score}</span>
-              )}
+        {sortedRankings.map((ranking: any, index: number) => {
+          const rank = ranking.rank !== undefined ? ranking.rank : index + 1
+          return (
+            <div key={ranking.itemId || index} className="p-3 rounded-lg bg-gray-900 border border-gray-800">
+              <div className="flex items-center gap-3">
+                <Badge className="bg-pink-500/20 text-pink-400 border-pink-500/20 min-w-[2rem] justify-center">
+                  #{rank}
+                </Badge>
+                <span className="text-white">{ranking.label || ranking.name || JSON.stringify(ranking)}</span>
+                {ranking.score && (
+                  <span className="ml-auto text-sm text-gray-400">Score: {ranking.score}</span>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     )
   }

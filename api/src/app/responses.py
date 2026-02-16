@@ -54,6 +54,7 @@ def read():
     - id: Filter by response ID
     - participant_id: Filter by participant
     - task_id: Filter by task
+    - study_id: Filter by study (returns responses for all tasks in the study)
     """
     logger.info('Received request to read responses')
     query = {}
@@ -61,6 +62,7 @@ def read():
     response_id = request.args.get('id', None)
     participant_id = request.args.get('participant_id', None)
     task_id = request.args.get('task_id', None)
+    study_id = request.args.get('study_id', None)
     
     if response_id:
         query['id'] = response_id
@@ -68,6 +70,8 @@ def read():
         query['participant_id'] = participant_id
     if task_id:
         query['task_id'] = task_id
+    if study_id:
+        query['study_id'] = study_id
     
     responses = read_responses(query=query)
     return responses

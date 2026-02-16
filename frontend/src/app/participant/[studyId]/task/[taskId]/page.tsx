@@ -10,6 +10,9 @@ import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { uploadFile } from "@/utils/storage"
+import { FillBlanksInput } from "@/components/fill-blanks-input"
+import { ClassificationInput } from "@/components/classification-input"
+import { CollageCanvas } from "@/components/collage-canvas"
 
 const API_URL = 'http://127.0.0.1:5000'
 
@@ -20,6 +23,9 @@ interface TaskData {
     title: string
     instructions: string
     order_index: number
+    template?: string
+    items?: Array<{ id: string; label: string; image?: string }>
+    layout?: { type: string; rows: number; cols: number; minImages?: number; maxImages?: number }
   }
   participant: {
     id: string
@@ -53,6 +59,9 @@ export default function ParticipantTaskPage() {
   const [videoDuration, setVideoDuration] = useState<number>(0)
   const [isRecording, setIsRecording] = useState(false)
   const [selectedImages, setSelectedImages] = useState<string[]>([])
+  const [fillBlanksResponse, setFillBlanksResponse] = useState<{ answers: Record<string, string>, filledText: string } | null>(null)
+  const [rankings, setRankings] = useState<Array<{ itemId: string; rank: number; label: string }>>([])
+  const [collageData, setCollageData] = useState<{ images: Array<{ url: string; position: { row: number; col: number }; id: string }>, layout: any } | null>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -85,6 +94,15 @@ export default function ParticipantTaskPage() {
         if (existing.text) setTextResponse(existing.text)
         if (existing.images) setSelectedImages(existing.images)
         if (existing.videoUrl) setUploadedUrls([existing.videoUrl])
+        if (existing.answers && existing.filledText) {
+          setFillBlanksResponse({ answers: existing.answers, filledText: existing.filledText })
+        }
+        if (existing.rankings) {
+          setRankings(existing.rankings)
+        }
+        if (existing.images && existing.layout && data.task.type === 'collage') {
+          setCollageData({ images: existing.images, layout: existing.layout })
+        }
       }
     } catch (err: any) {
       setError(err.message || 'Failed to load task')
@@ -219,11 +237,25 @@ export default function ParticipantTaskPage() {
 
       switch (taskData.task.type) {
         case 'discussion':
-        case 'fill_blanks':
           if (!textResponse.trim()) {
             throw new Error('Please enter your response')
           }
           responseData = { text: textResponse }
+          break
+
+        case 'fill_blanks':
+          if (!fillBlanksResponse || !fillBlanksResponse.filledText) {
+            throw new Error('Please fill in all blanks')
+          }
+          // Validate all blanks are filled
+          const allFilled = Object.values(fillBlanksResponse.answers).every(answer => answer.trim())
+          if (!allFilled) {
+            throw new Error('Please fill in all blanks before submitting')
+          }
+          responseData = {
+            answers: fillBlanksResponse.answers,
+            filledText: fillBlanksResponse.filledText
+          }
           break
 
         case 'camera':
@@ -238,7 +270,6 @@ export default function ParticipantTaskPage() {
           break
 
         case 'gallery':
-        case 'collage':
           if (selectedImages.length === 0 && selectedFiles.length === 0) {
             throw new Error('Please select at least one image')
           }
@@ -252,8 +283,44 @@ export default function ParticipantTaskPage() {
           break
 
         case 'classification':
-          // This would be handled by a ranking/sorting component
-          responseData = { rankings: [] } // Placeholder
+          if (!rankings || rankings.length === 0) {
+            throw new Error('Please rank all items')
+          }
+          responseData = { rankings }
+          break
+
+        case 'collage':
+          if (!collageData || collageData.images.length === 0) {
+            throw new Error('Please add at least one image to your collage')
+          }
+          // Upload any images that haven't been uploaded yet (have file objects)
+          const imagesToUpload = collageData.images.filter(img => img.file)
+          const finalImages = [...collageData.images]
+          
+          if (imagesToUpload.length > 0) {
+            // Upload each file
+            for (let i = 0; i < imagesToUpload.length; i++) {
+              const img = imagesToUpload[i]
+              if (img.file) {
+                const path = `participant-uploads/${studyId}/${taskData.participant.id}/${Date.now()}-${img.file.name}`
+                const url = await uploadFile('participant-uploads', img.file, path)
+                // Update the image in finalImages
+                const imgIndex = finalImages.findIndex(fimg => fimg.id === img.id)
+                if (imgIndex !== -1) {
+                  finalImages[imgIndex] = {
+                    ...finalImages[imgIndex],
+                    url: url,
+                    file: undefined
+                  }
+                }
+              }
+            }
+          }
+          
+          responseData = {
+            images: finalImages.map(({ file, ...rest }) => rest), // Remove file objects
+            layout: collageData.layout
+          }
           break
 
         default:
@@ -321,7 +388,6 @@ export default function ParticipantTaskPage() {
   const renderTaskInput = () => {
     switch (taskData.task.type) {
       case 'discussion':
-      case 'fill_blanks':
         return (
           <div className="space-y-4">
             <Textarea
@@ -329,6 +395,27 @@ export default function ParticipantTaskPage() {
               value={textResponse}
               onChange={(e) => setTextResponse(e.target.value)}
               className="bg-gray-900 border-gray-800 text-white placeholder:text-gray-500 min-h-[200px]"
+              disabled={submitting || !!taskData.existing_response}
+            />
+          </div>
+        )
+
+      case 'fill_blanks':
+        if (!taskData.task.template) {
+          return (
+            <div className="space-y-4">
+              <p className="text-gray-400 text-center py-8">
+                No template provided for this task
+              </p>
+            </div>
+          )
+        }
+        return (
+          <div className="space-y-4">
+            <FillBlanksInput
+              template={taskData.task.template}
+              value={fillBlanksResponse || undefined}
+              onChange={(value) => setFillBlanksResponse(value)}
               disabled={submitting || !!taskData.existing_response}
             />
           </div>
@@ -401,7 +488,6 @@ export default function ParticipantTaskPage() {
         )
 
       case 'gallery':
-      case 'collage':
         return (
           <div className="space-y-4">
             <Input
@@ -430,20 +516,77 @@ export default function ParticipantTaskPage() {
             )}
             {selectedImages.length === 0 && (
               <p className="text-gray-400 text-center py-8">
-                {taskData.task.type === 'gallery'
-                  ? 'Select one or more images'
-                  : 'Select images to create your collage'}
+                Select one or more images
               </p>
             )}
           </div>
         )
 
-      case 'classification':
+      case 'collage':
+        if (!taskData.task.layout) {
+          return (
+            <div className="space-y-4">
+              <p className="text-gray-400 text-center py-8">
+                No layout configuration provided for this collage task
+              </p>
+            </div>
+          )
+        }
         return (
           <div className="space-y-4">
-            <p className="text-gray-400 text-center py-8">
-              Classification/ranking tasks will be implemented with a drag-and-drop interface
-            </p>
+            <CollageCanvas
+              layout={taskData.task.layout}
+              value={collageData || undefined}
+              onChange={(data) => {
+                setCollageData(data)
+                // Upload images if they have file objects
+                const uploadPromises = data.images
+                  .filter(img => img.file)
+                  .map(async (img) => {
+                    if (img.file && studyId && taskData.participant.id) {
+                      const path = `participant-uploads/${studyId}/${taskData.participant.id}/${Date.now()}-${img.file.name}`
+                      const url = await uploadFile('participant-uploads', img.file, path)
+                      return { ...img, url, file: undefined }
+                    }
+                    return img
+                  })
+                
+                Promise.all(uploadPromises).then(uploadedImages => {
+                  const updatedData = {
+                    ...data,
+                    images: data.images.map(img => {
+                      const uploaded = uploadedImages.find(u => u.id === img.id)
+                      return uploaded || img
+                    })
+                  }
+                  setCollageData(updatedData)
+                })
+              }}
+              disabled={submitting || !!taskData.existing_response}
+              studyId={studyId}
+              participantId={taskData.participant.id}
+            />
+          </div>
+        )
+
+      case 'classification':
+        if (!taskData.task.items || taskData.task.items.length === 0) {
+          return (
+            <div className="space-y-4">
+              <p className="text-gray-400 text-center py-8">
+                No items provided for classification
+              </p>
+            </div>
+          )
+        }
+        return (
+          <div className="space-y-4">
+            <ClassificationInput
+              items={taskData.task.items}
+              value={rankings.length > 0 ? rankings : undefined}
+              onChange={(newRankings) => setRankings(newRankings)}
+              disabled={submitting || !!taskData.existing_response}
+            />
           </div>
         )
 

@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { getStudies, getTasks, getParticipants, getResponses } from "@/utils/api"
 import { ParticipantLinkButton } from "./participant-link-button"
 import { ResponseRenderer } from "@/components/response-renderer"
+import { StudyActions } from "./study-actions"
 
 export default async function StudyDetailPage({
   params,
@@ -65,6 +66,7 @@ export default async function StudyDetailPage({
               <p className="text-gray-400">{study.objective || 'No objective provided'}</p>
             </div>
             <div className="flex items-center gap-4">
+              <StudyActions studyId={id} studyName={study.name} />
               <ParticipantLinkButton studyId={id} />
               <Badge
                 className={

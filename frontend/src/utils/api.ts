@@ -60,14 +60,25 @@ async function GetData(url: string, token: string) {
             // Try to parse error response to get actual error message
             let errorMessage = `Request failed with status ${response.status}: ${response.statusText}`;
             try {
-                const errorData = await response.json();
-                errorMessage = errorData.error || errorData.message || errorData.msg || errorMessage;
-                // Include help message if it exists
-                if (errorData.help) {
-                    errorMessage += `\n\n${errorData.help}`;
+                // Read response as text first (this consumes the body)
+                const text = await response.text();
+                
+                // Try to parse as JSON
+                if (text) {
+                    try {
+                        const errorData = JSON.parse(text);
+                        errorMessage = errorData.error || errorData.message || errorData.msg || errorMessage;
+                        // Include help message if it exists
+                        if (errorData.help) {
+                            errorMessage += `\n\n${errorData.help}`;
+                        }
+                    } catch {
+                        // If JSON parsing fails, use the text as error message
+                        errorMessage = text;
+                    }
                 }
             } catch (parseError) {
-                // If JSON parsing fails, use status text
+                // If reading response fails, use status text
                 errorMessage = response.statusText || `HTTP ${response.status} error`;
             }
             throw new Error(errorMessage);
@@ -99,24 +110,50 @@ async function PostData(url: string, params: Map | undefined, token: string) {
         if (!response.ok) {
             // Try to parse error response to get actual error message
             let errorMessage = `Request failed with status ${response.status}: ${response.statusText}`;
+            let errorDetails: any = null;
             try {
-                const errorData = await response.json();
-                errorMessage = errorData.error || errorData.message || errorData.msg || errorMessage;
-                // Include help message if it exists
-                if (errorData.help) {
-                    errorMessage += `\n\n${errorData.help}`;
+                // Read response as text first (this consumes the body)
+                const text = await response.text();
+                
+                // Log the raw response for debugging
+                console.error(`API Error Response (${url}):`, {
+                    status: response.status,
+                    statusText: response.statusText,
+                    body: text,
+                    headers: Object.fromEntries(response.headers.entries())
+                });
+                
+                // Try to parse as JSON
+                if (text) {
+                    try {
+                        const errorData = JSON.parse(text);
+                        errorDetails = errorData;
+                        errorMessage = errorData.error || errorData.message || errorData.msg || errorMessage;
+                        // Include help message if it exists
+                        if (errorData.help) {
+                            errorMessage += `\n\n${errorData.help}`;
+                        }
+                    } catch {
+                        // If JSON parsing fails, use the text as error message
+                        errorMessage = text || errorMessage;
+                    }
                 }
             } catch (parseError) {
-                // If JSON parsing fails, use status text
+                // If reading response fails, use status text
+                console.error('Failed to read error response:', parseError);
                 errorMessage = response.statusText || `HTTP ${response.status} error`;
             }
-            throw new Error(errorMessage);
+            const error = new Error(errorMessage);
+            (error as any).status = response.status;
+            (error as any).details = errorDetails;
+            (error as any).url = url;
+            throw error;
         }
         
         return await response.json();
     } catch (error: any) {
-        // Re-throw if it's already our formatted error
-        if (error.message && error.message.includes('Request failed')) {
+        // Re-throw if it's already our formatted error (has status or includes 'Request failed')
+        if ((error.status !== undefined) || (error.message && error.message.includes('Request failed'))) {
             throw error;
         }
         // Handle network errors or other fetch errors

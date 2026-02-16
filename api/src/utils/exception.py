@@ -28,6 +28,8 @@ def handle_exception(func):
         except Exception as exc:
             logger.error(f"Unhandled error in {func.__name__}: {exc}")
             # Wrap unexpected exceptions so upper layers can format consistently.
-            raise ServiceError() from exc
+            # Preserve the original error message
+            error_message = str(exc) if exc else "Internal server error"
+            raise ServiceError(error_message, status_code=500) from exc
 
     return wrapper

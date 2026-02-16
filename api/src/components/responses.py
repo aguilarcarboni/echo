@@ -81,6 +81,7 @@ def read_responses(query: dict = None):
             - id: Filter by response ID
             - participant_id: Filter by participant
             - task_id: Filter by task
+            - study_id: Filter by study (returns responses for all tasks in the study)
     
     Returns:
         list: List of response dictionaries
@@ -88,15 +89,47 @@ def read_responses(query: dict = None):
     if query is None:
         query = {}
     
-    # Validate UUID format for id, participant_id, and task_id if present in query
+    # Extract study_id separately since it requires special handling
+    study_id = query.get('study_id')
+    
+    # Validate UUID format for id, participant_id, task_id, and study_id if present in query
     if 'id' in query:
         _validate_uuid(query['id'], "id")
     if 'participant_id' in query:
         _validate_uuid(query['participant_id'], "participant_id")
     if 'task_id' in query:
         _validate_uuid(query['task_id'], "task_id")
+    if study_id:
+        _validate_uuid(study_id, "study_id")
     
-    responses = db.read(table='responses', query=query)
+    # Handle study_id filter: get all tasks for the study, then filter responses by those tasks
+    if study_id:
+        # Get all tasks for this study
+        from src.components.tasks import read_tasks
+        study_tasks = read_tasks(query={'study_id': study_id})
+        task_ids = [task['id'] for task in study_tasks]
+        
+        if not task_ids:
+            # No tasks for this study, so no responses
+            logger.info(f'No tasks found for study {study_id}, returning empty responses list')
+            return []
+        
+        # Get responses for each task and combine them
+        # This is more efficient than getting all responses and filtering
+        all_responses = []
+        for task_id in task_ids:
+            task_query = {'task_id': task_id}
+            # Apply other filters if present (excluding study_id since we already handled it)
+            other_filters = {k: v for k, v in query.items() if k != 'study_id'}
+            task_query.update(other_filters)
+            task_responses = db.read(table='responses', query=task_query)
+            all_responses.extend(task_responses)
+        
+        responses = all_responses
+    else:
+        # No study_id filter, use normal query
+        responses = db.read(table='responses', query=query)
+    
     logger.info(f'Retrieved {len(responses)} responses')
     return responses
 

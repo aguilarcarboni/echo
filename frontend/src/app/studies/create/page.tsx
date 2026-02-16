@@ -16,10 +16,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { taskTypes, researchTypeOptions } from "@/lib/data"
 import { Sparkles, X } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
+import { TaskConfigModal } from "@/components/task-config-modal"
 
 interface Task {
   taskTypeId: number
   prompt: string
+  config?: any
 }
 
 export default function CreateStudyPage() {
@@ -34,6 +36,8 @@ export default function CreateStudyPage() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [currentTaskType, setCurrentTaskType] = useState("")
   const [currentPrompt, setCurrentPrompt] = useState("")
+  const [currentTaskConfig, setCurrentTaskConfig] = useState<any>(null)
+  const [configModalOpen, setConfigModalOpen] = useState(false)
   const [organizationId, setOrganizationId] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -81,11 +85,50 @@ export default function CreateStudyPage() {
     initializeUserAndOrg()
   }, [])
 
+  const needsConfiguration = (taskTypeId: number): boolean => {
+    return taskTypeId === 4 || taskTypeId === 5 || taskTypeId === 6 // collage, classification, fill_blanks
+  }
+
+  const getTaskTypeString = (taskTypeId: number): string => {
+    const typeMap: { [key: number]: string } = {
+      1: 'camera',
+      2: 'discussion',
+      3: 'gallery',
+      4: 'collage',
+      5: 'classification',
+      6: 'fill_blanks',
+    }
+    return typeMap[taskTypeId] || 'discussion'
+  }
+
+  const handleConfigureTask = () => {
+    if (currentTaskType) {
+      setConfigModalOpen(true)
+    }
+  }
+
+  const handleConfigSave = (config: any) => {
+    setCurrentTaskConfig(config)
+    setConfigModalOpen(false)
+  }
+
   const handleAddTask = () => {
     if (currentTaskType && currentPrompt) {
-      setTasks([...tasks, { taskTypeId: Number.parseInt(currentTaskType), prompt: currentPrompt }])
+      const taskTypeId = Number.parseInt(currentTaskType)
+      const task: Task = {
+        taskTypeId,
+        prompt: currentPrompt,
+      }
+      
+      // Add config if it's a special task type and config exists
+      if (needsConfiguration(taskTypeId) && currentTaskConfig) {
+        task.config = currentTaskConfig
+      }
+      
+      setTasks([...tasks, task])
       setCurrentTaskType("")
       setCurrentPrompt("")
+      setCurrentTaskConfig(null)
     }
   }
 
@@ -131,12 +174,26 @@ export default function CreateStudyPage() {
         
         // Then, create all tasks
         for (const task of tasks) {
-            await createTask({
+            const taskType = getTaskTypeFromId(task.taskTypeId)
+            const taskData: any = {
                 study_id: studyId,
-                type: getTaskTypeFromId(task.taskTypeId), // Map your task type IDs
+                type: taskType,
                 title: task.prompt,
                 instructions: task.prompt,
-            })
+            }
+            
+            // Add task-specific configuration
+            if (task.config) {
+                if (taskType === 'fill_blanks' && task.config.template) {
+                    taskData.template = task.config.template
+                } else if (taskType === 'classification' && task.config.items) {
+                    taskData.items = task.config.items
+                } else if (taskType === 'collage' && task.config.layout) {
+                    taskData.layout = task.config.layout
+                }
+            }
+            
+            await createTask(taskData)
         }
         
         toast({
@@ -145,11 +202,12 @@ export default function CreateStudyPage() {
         })
         
         router.push(`/studies/${studyId}`)
-    } catch (error) {
+    } catch (error: any) {
         console.error('Failed to create study:', error)
+        const errorMessage = error?.message || "Failed to create study. Please try again."
         toast({
             title: "Error",
-            description: "Failed to create study. Please try again.",
+            description: errorMessage,
             variant: "destructive",
           })
       }
@@ -347,12 +405,30 @@ export default function CreateStudyPage() {
                   </div>
                 </div>
 
+                {currentTaskType && needsConfiguration(Number.parseInt(currentTaskType)) && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      onClick={handleConfigureTask}
+                      variant="outline"
+                      className="border-purple-500 text-purple-500 hover:bg-purple-500/10 bg-transparent"
+                    >
+                      {currentTaskConfig ? '✓ Configured' : 'Configure Task'}
+                    </Button>
+                    {currentTaskConfig && (
+                      <span className="text-sm text-gray-400">
+                        Task configuration saved
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 <Button
                   type="button"
                   onClick={handleAddTask}
                   variant="outline"
                   className="border-blue-500 text-blue-500 hover:bg-blue-500/10 bg-transparent"
-                  disabled={!currentTaskType || !currentPrompt}
+                  disabled={!currentTaskType || !currentPrompt || (needsConfiguration(Number.parseInt(currentTaskType)) && !currentTaskConfig)}
                 >
                   Add Task
                 </Button>
@@ -406,6 +482,17 @@ export default function CreateStudyPage() {
             </div>
           </div>
         </form>
+
+        {/* Task Configuration Modal */}
+        {currentTaskType && (
+          <TaskConfigModal
+            taskType={getTaskTypeString(Number.parseInt(currentTaskType))}
+            isOpen={configModalOpen}
+            onClose={() => setConfigModalOpen(false)}
+            onSave={handleConfigSave}
+            existingConfig={currentTaskConfig}
+          />
+        )}
       </main>
     </div>
   )

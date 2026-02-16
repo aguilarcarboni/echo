@@ -168,6 +168,7 @@ class Supabase:
             title = Column(Text, nullable=False)
             instructions = Column(Text, nullable=True)
             order_index = Column(Integer, default=0)
+            config = Column(JSONB, nullable=True)  # Store task-specific config (items, template, layout)
             created_at = Column(Text, nullable=True)
             updated_at = Column(Text, nullable=True)
 

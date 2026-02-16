@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { getStudies, updateStudy, getTasks, createTask } from "@/utils/api"
+import { getStudies, updateStudy, getTasks, createTask, updateTask, deleteTask } from "@/utils/api"
 import { useState, useEffect } from "react"
 import { useRouter, useParams } from "next/navigation"
 import { Navbar } from "@/components/navbar"
@@ -15,10 +15,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { taskTypes, researchTypeOptions } from "@/lib/data"
 import { Sparkles, X } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
+import { TaskConfigModal } from "@/components/task-config-modal"
 
 interface Task {
+  id?: string  // Existing task ID (if editing)
   taskTypeId: number
   prompt: string
+  config?: any
 }
 
 export default function EditStudyPage() {
@@ -36,6 +39,8 @@ export default function EditStudyPage() {
   const [tasks, setTasks] = useState<Task[]>([])
   const [currentTaskType, setCurrentTaskType] = useState("")
   const [currentPrompt, setCurrentPrompt] = useState("")
+  const [currentTaskConfig, setCurrentTaskConfig] = useState<any>(null)
+  const [configModalOpen, setConfigModalOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
 
   // Fetch study data and existing tasks
@@ -96,10 +101,22 @@ export default function EditStudyPage() {
             'classification': 5,
             'fill_blanks': 6
           }
-          return {
+          const taskObj: Task = {
+            id: task.id,  // Preserve existing task ID
             taskTypeId: typeMap[task.type] || 2,
             prompt: task.title || task.instructions || ""
           }
+          
+          // Load configuration if it exists
+          if (task.template) {
+            taskObj.config = { template: task.template }
+          } else if (task.items) {
+            taskObj.config = { items: task.items }
+          } else if (task.layout) {
+            taskObj.config = { layout: task.layout }
+          }
+          
+          return taskObj
         })
         setTasks(existingTasks)
       } catch (error) {
@@ -117,11 +134,38 @@ export default function EditStudyPage() {
     fetchStudyData()
   }, [studyId, router, toast])
 
+  const needsConfiguration = (taskTypeId: number): boolean => {
+    return taskTypeId === 4 || taskTypeId === 5 || taskTypeId === 6 // collage, classification, fill_blanks
+  }
+
+  const handleConfigureTask = () => {
+    if (currentTaskType) {
+      setConfigModalOpen(true)
+    }
+  }
+
+  const handleConfigSave = (config: any) => {
+    setCurrentTaskConfig(config)
+    setConfigModalOpen(false)
+  }
+
   const handleAddTask = () => {
     if (currentTaskType && currentPrompt) {
-      setTasks([...tasks, { taskTypeId: Number.parseInt(currentTaskType), prompt: currentPrompt }])
+      const taskTypeId = Number.parseInt(currentTaskType)
+      const task: Task = {
+        taskTypeId,
+        prompt: currentPrompt,
+      }
+      
+      // Add config if it's a special task type and config exists
+      if (needsConfiguration(taskTypeId) && currentTaskConfig) {
+        task.config = currentTaskConfig
+      }
+      
+      setTasks([...tasks, task])
       setCurrentTaskType("")
       setCurrentPrompt("")
+      setCurrentTaskConfig(null)
     }
   }
 
@@ -152,17 +196,136 @@ export default function EditStudyPage() {
         status: status,
       })
       
+      // Sync tasks: create new, update existing, delete removed
+      let existingTasks: any[] = []
+      try {
+        const tasksResponse = await getTasks({ study_id: studyId })
+        existingTasks = Array.isArray(tasksResponse) ? tasksResponse : []
+      } catch (error) {
+        console.error('Failed to fetch existing tasks:', error)
+        // Continue anyway - we'll try to create/update based on what we have
+      }
+      
+      const existingTaskIds = new Set(
+        existingTasks.map((t: any) => t.id).filter((id: any) => id)
+      )
+      const currentTaskIds = new Set(
+        tasks.filter(t => t.id).map(t => t.id!)
+      )
+      
+      // Delete tasks that were removed
+      const tasksToDelete = Array.from(existingTaskIds).filter(id => !currentTaskIds.has(id))
+      for (const taskId of tasksToDelete) {
+        try {
+          await deleteTask(taskId)
+        } catch (error) {
+          console.error(`Failed to delete task ${taskId}:`, error)
+          // Continue with other operations even if one delete fails
+        }
+      }
+      
+      // Create or update tasks
+      for (let i = 0; i < tasks.length; i++) {
+        const task = tasks[i]
+        
+        // Skip if task is missing required fields
+        if (!task.prompt || !task.prompt.trim()) {
+          console.warn(`Skipping task at index ${i} - missing prompt`)
+          continue
+        }
+        
+        const taskType = getTaskTypeFromId(task.taskTypeId)
+        
+        if (task.id) {
+          // Update existing task - only send fields that are changing
+          const updateData: any = {
+            title: task.prompt,
+            instructions: task.prompt,
+            order_index: i + 1,
+          }
+          
+          // Check if task type changed (compare with existing task)
+          // Note: Changing task type is risky - we'll only update type if it's different
+          // but this might cause validation issues if old config fields conflict
+          const existingTask = existingTasks.find((t: any) => t.id === task.id)
+          if (existingTask && existingTask.type !== taskType) {
+            // When type changes, we should clear old config fields
+            // But for safety, let's not change type on existing tasks
+            // Users should delete and recreate if they need to change type
+            console.warn(`Task ${task.id} type change detected (${existingTask.type} -> ${taskType}). Type changes may cause validation errors.`)
+            // Uncomment below to allow type changes (may cause validation errors):
+            // updateData.type = taskType
+          }
+          
+          // Only include config fields if they have values (don't send null)
+          if (taskType === 'fill_blanks') {
+            if (task.config?.template) {
+              updateData.template = task.config.template
+            }
+          } else if (taskType === 'classification') {
+            if (task.config?.items && task.config.items.length > 0) {
+              updateData.items = task.config.items
+            }
+          } else if (taskType === 'collage') {
+            if (task.config?.layout) {
+              updateData.layout = task.config.layout
+            }
+          }
+          
+          try {
+            await updateTask(task.id, updateData)
+          } catch (error) {
+            console.error(`Failed to update task ${task.id}:`, error)
+            throw error // Re-throw to show error to user
+          }
+        } else {
+          // Create new task - include all required fields
+          const taskData: any = {
+            study_id: studyId,
+            type: taskType,
+            title: task.prompt,
+            instructions: task.prompt,
+            order_index: i + 1,
+          }
+          
+          // Add task-specific configuration if present
+          if (task.config) {
+            if (taskType === 'fill_blanks' && task.config.template) {
+              taskData.template = task.config.template
+            } else if (taskType === 'classification' && task.config.items) {
+              taskData.items = task.config.items
+            } else if (taskType === 'collage' && task.config.layout) {
+              taskData.layout = task.config.layout
+            }
+          }
+          
+          try {
+            await createTask(taskData)
+          } catch (error) {
+            console.error(`Failed to create task:`, error)
+            throw error // Re-throw to show error to user
+          }
+        }
+      }
+      
       toast({
         title: "Study Updated!",
-        description: "Your study has been updated successfully.",
+        description: "Your study and tasks have been updated successfully.",
       })
       
       router.push(`/studies/${studyId}`)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to update study:', error)
+      // Extract error message - could be from error.message or error.details
+      let errorMessage = error?.message || "Failed to update study. Please try again."
+      if (error?.details?.error) {
+        errorMessage = error.details.error
+      } else if (error?.details?.message) {
+        errorMessage = error.details.message
+      }
       toast({
         title: "Error",
-        description: "Failed to update study. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       })
     }
@@ -322,15 +485,13 @@ export default function EditStudyPage() {
               </CardContent>
             </Card>
 
-            {/* Tasks - Note: This shows existing tasks but doesn't edit them yet */}
+            {/* Tasks */}
             <Card className="bg-gray-950 border-gray-800">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="text-white">Study Tasks</CardTitle>
-                    <CardDescription className="text-gray-400">
-                      Existing tasks: {tasks.length}. Note: Task editing is coming soon.
-                    </CardDescription>
+                    <CardDescription className="text-gray-400">Add tasks for participants to complete</CardDescription>
                   </div>
                   <Button
                     type="button"
@@ -344,9 +505,70 @@ export default function EditStudyPage() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                {tasks.length > 0 && (
+                <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label className="text-white">Existing Tasks ({tasks.length})</Label>
+                    <Label htmlFor="taskType" className="text-white">
+                      Task Type
+                    </Label>
+                    <Select value={currentTaskType} onValueChange={setCurrentTaskType}>
+                      <SelectTrigger className="bg-gray-900 border-gray-800 text-white">
+                        <SelectValue placeholder="Select task type" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-gray-900 border-gray-800">
+                        {taskTypes.map((type) => (
+                          <SelectItem key={type.id} value={type.id.toString()} className="text-white">
+                            {type.name} - {type.description}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="prompt" className="text-white">
+                      Task Prompt
+                    </Label>
+                    <Input
+                      id="prompt"
+                      value={currentPrompt}
+                      onChange={(e) => setCurrentPrompt(e.target.value)}
+                      placeholder="Enter task prompt"
+                      className="bg-gray-900 border-gray-800 text-white placeholder:text-gray-500"
+                    />
+                  </div>
+                </div>
+
+                {currentTaskType && needsConfiguration(Number.parseInt(currentTaskType)) && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      onClick={handleConfigureTask}
+                      variant="outline"
+                      className="border-purple-500 text-purple-500 hover:bg-purple-500/10 bg-transparent"
+                    >
+                      {currentTaskConfig ? '✓ Configured' : 'Configure Task'}
+                    </Button>
+                    {currentTaskConfig && (
+                      <span className="text-sm text-gray-400">
+                        Task configuration saved
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <Button
+                  type="button"
+                  onClick={handleAddTask}
+                  variant="outline"
+                  className="border-blue-500 text-blue-500 hover:bg-blue-500/10 bg-transparent"
+                  disabled={!currentTaskType || !currentPrompt || (currentTaskType && needsConfiguration(Number.parseInt(currentTaskType)) && !currentTaskConfig)}
+                >
+                  Add Task
+                </Button>
+
+                {tasks.length > 0 && (
+                  <div className="space-y-2 mt-4">
+                    <Label className="text-white">Added Tasks ({tasks.length})</Label>
                     <div className="space-y-2">
                       {tasks.map((task, index) => {
                         const taskType = taskTypes.find((t) => t.id === task.taskTypeId)
@@ -358,7 +580,19 @@ export default function EditStudyPage() {
                             <div>
                               <p className="text-white font-medium">{taskType?.name}</p>
                               <p className="text-sm text-gray-400">{task.prompt}</p>
+                              {task.config && (
+                                <p className="text-xs text-purple-400 mt-1">✓ Configured</p>
+                              )}
                             </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleRemoveTask(index)}
+                              className="text-red-500 hover:text-red-400 hover:bg-red-500/10"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
                           </div>
                         )
                       })}
@@ -384,6 +618,17 @@ export default function EditStudyPage() {
             </div>
           </div>
         </form>
+
+        {/* Task Configuration Modal */}
+        {currentTaskType && (
+          <TaskConfigModal
+            taskType={getTaskTypeFromId(Number.parseInt(currentTaskType))}
+            isOpen={configModalOpen}
+            onClose={() => setConfigModalOpen(false)}
+            onSave={handleConfigSave}
+            existingConfig={currentTaskConfig}
+          />
+        )}
       </main>
     </div>
   )
